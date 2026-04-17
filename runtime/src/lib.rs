@@ -99,9 +99,10 @@ pub const DAYS: BlockNumber = HOURS * 24;
 pub const BLOCK_HASH_COUNT: BlockNumber = 2400;
 
 // Unit = the base number of indivisible units for balances
-pub const UNIT: Balance = 1_000_000_000_000;
-pub const MILLI_UNIT: Balance = 1_000_000_000;
-pub const MICRO_UNIT: Balance = 1_000_000;
+// 18 decimals: 1 UNIT = 10^18 smallest units (consistent with EVM/ETH)
+pub const UNIT: Balance = 1_000_000_000_000_000_000;
+pub const MILLI_UNIT: Balance = 1_000_000_000_000_000;
+pub const MICRO_UNIT: Balance = 1_000_000_000_000;
 
 /// Existential deposit.
 pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_UNIT;
