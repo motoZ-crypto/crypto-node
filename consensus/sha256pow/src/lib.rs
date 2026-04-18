@@ -8,6 +8,7 @@
 //! scheme (see issue #38).
 
 use codec::{Decode, Encode};
+use sc_consensus_pow::{Error, PowAlgorithm};
 use sha2::{Digest, Sha256};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_pow::DifficultyApi;
@@ -69,9 +70,8 @@ pub fn hash_meets_difficulty(hash: &H256, difficulty: U256) -> bool {
 /// SHA-256 double-hash PoW algorithm backed by a runtime `DifficultyApi`.
 ///
 /// The struct carries a client reference so it can query the runtime for
-/// the current target difficulty.  Its public API mirrors
-/// `sc_consensus_pow::PowAlgorithm` and will be wired into the actual trait
-/// implementation when the service integration lands (issue #4).
+/// the current target difficulty.  Implements `sc_consensus_pow::PowAlgorithm`
+/// so it can be used directly with `sc-consensus-pow` block import and mining.
 pub struct Sha256DoubleHashAlgorithm<B: BlockT, C> {
 	client: Arc<C>,
 	_phantom: PhantomData<B>,
@@ -90,18 +90,19 @@ impl<B: BlockT, C> Clone for Sha256DoubleHashAlgorithm<B, C> {
 	}
 }
 
-impl<B, C> Sha256DoubleHashAlgorithm<B, C>
+impl<B, C> PowAlgorithm<B> for Sha256DoubleHashAlgorithm<B, C>
 where
 	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B>,
+	C: ProvideRuntimeApi<B> + Send + Sync,
 	C::Api: DifficultyApi<B, U256>,
 {
-	/// Fetch the target difficulty for the block **after** `parent`.
-	pub fn difficulty(&self, parent: B::Hash) -> Result<U256, String> {
+	type Difficulty = U256;
+
+	fn difficulty(&self, parent: B::Hash) -> Result<U256, Error<B>> {
 		self.client
 			.runtime_api()
 			.difficulty(parent)
-			.map_err(|err| format!("Fetching difficulty from runtime failed: {err:?}"))
+			.map_err(|err| Error::Other(format!("Fetching difficulty from runtime failed: {err:?}")))
 	}
 
 	/// Verify a raw seal against `pre_hash` and `difficulty`.
@@ -110,16 +111,16 @@ where
 	///   1. The seal can be SCALE-decoded.
 	///   2. The contained `work` hash meets the difficulty target.
 	///   3. Re-computing the hash from `pre_hash` and `nonce` reproduces `work`.
-	pub fn verify(
+	fn verify(
 		&self,
 		_parent: &BlockId<B>,
 		pre_hash: &B::Hash,
 		_pre_digest: Option<&[u8]>,
-		seal: &[u8],
+		seal: &sp_consensus_pow::Seal,
 		difficulty: U256,
-	) -> Result<bool, String> {
+	) -> Result<bool, Error<B>> {
 		let seal = Seal::decode(&mut &seal[..])
-			.map_err(|e| format!("Malformed seal: {e}"))?;
+			.map_err(Error::Codec)?;
 
 		if !hash_meets_difficulty(&seal.work, difficulty) {
 			return Ok(false);

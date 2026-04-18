@@ -11,6 +11,8 @@ publish = false
 
 [dependencies]
 codec = { features = ["derive"], workspace = true }
+sc-consensus-pow.default-features = true
+sc-consensus-pow.workspace = true
 sha2.workspace = true
 sp-api.default-features = true
 sp-api.workspace = true
