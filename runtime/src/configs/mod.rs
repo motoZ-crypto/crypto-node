@@ -122,6 +122,16 @@ impl pallet_balances::Config for Runtime {
 }
 
 parameter_types! {
+	/// Block reward: 50 UNIT per block to the miner.
+	pub const BlockReward: Balance = 50 * super::UNIT;
+}
+
+impl pallet_reward::Config for Runtime {
+	type Currency = Balances;
+	type BlockReward = BlockReward;
+}
+
+parameter_types! {
 	pub const TargetBlockFullness: Perquintill = Perquintill::from_percent(25);
 	pub AdjustmentVariable: Multiplier = Multiplier::saturating_from_rational(3, 100_000);
 	pub MinimumMultiplier: Multiplier = Multiplier::saturating_from_rational(1, 1_000_000u128);

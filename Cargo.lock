@@ -6336,6 +6336,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-reward"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-consensus-pow",
+ "sp-io",
+ "sp-keyring",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-session"
 version = "46.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10202,6 +10217,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
  "pallet-balances",
+ "pallet-reward",
  "pallet-sudo",
  "pallet-template",
  "pallet-timestamp",
