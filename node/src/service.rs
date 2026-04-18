@@ -106,6 +106,7 @@ pub fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
 	config: Configuration,
+	mine: bool,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -161,7 +162,6 @@ pub fn new_full<
 		);
 	}
 
-	let role = config.role;
 	let prometheus_registry = config.prometheus_registry().cloned();
 
 	let rpc_extensions_builder = {
@@ -190,7 +190,7 @@ pub fn new_full<
 		tracing_execute_block: None,
 	})?;
 
-	if role.is_authority() {
+	if mine {
 		let proposer_factory = sc_basic_authorship::ProposerFactory::new(
 			task_manager.spawn_handle(),
 			client.clone(),
