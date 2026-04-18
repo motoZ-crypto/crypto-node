@@ -16,12 +16,12 @@ resolver = "2"
 
 [workspace.dependencies]
 solochain-template-runtime = { path = "./runtime", default-features = false }
-sha256pow = { path = "./consensus/sha256pow" }
+sha256pow = { path = "./consensus/sha256pow", default-features = false }
 pallet-template = { path = "./pallets/template", default-features = false }
 clap = { version = "4.6.0" }
 futures = { version = "0.3.32" }
 jsonrpsee = { version = "0.24.3" }
-sha2 = { version = "0.11.0" }
+sha2 = { version = "0.11.0", default-features = false }
 frame-benchmarking-cli = { version = "54.0.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.14.0", default-features = false }
 frame-system = { version = "46.0.0", default-features = false }

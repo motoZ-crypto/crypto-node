@@ -32,6 +32,7 @@ pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-transaction-payment.workspace = true
 scale-info = { features = ["derive", "serde"], workspace = true }
 serde_json = { workspace = true, default-features = false, features = ["alloc"] }
+sha256pow.workspace = true
 sp-api.workspace = true
 sp-block-builder.workspace = true
 sp-consensus-aura = { features = ["serde"], workspace = true }
@@ -73,6 +74,7 @@ std = [
 	"pallet-transaction-payment/std",
 	"scale-info/std",
 	"serde_json/std",
+	"sha256pow/std",
 	"sp-api/std",
 	"sp-block-builder/std",
 	"sp-consensus-aura/std",

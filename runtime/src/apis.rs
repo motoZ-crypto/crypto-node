@@ -298,6 +298,12 @@ impl_runtime_apis! {
 		}
 	}
 
+	impl sha256pow::PowVerifyApi<Block> for Runtime {
+		fn verify_seal(pre_hash: sp_core::H256, seal: Vec<u8>, difficulty: U256) -> bool {
+			sha256pow::verify_seal(pre_hash, &seal, difficulty).unwrap_or(false)
+		}
+	}
+
 	impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
 		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
 			build_state::<RuntimeGenesisConfig>(config)

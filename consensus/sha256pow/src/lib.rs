@@ -6,15 +6,22 @@
 //!
 //! This is an interim algorithm and will be replaced by an ASIC-resistant
 //! scheme (see issue #38).
+//!
+//! The core types ([`Seal`], [`Compute`], [`hash_meets_difficulty`],
+//! [`verify_seal`]) are `no_std`-compatible so the runtime can perform
+//! seal verification, making the algorithm hot-swappable via runtime
+//! upgrade.
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+use alloc::vec::Vec;
 
 use codec::{Decode, Encode};
-use sc_consensus_pow::{Error, PowAlgorithm};
 use sha2::{Digest, Sha256};
-use sp_api::ProvideRuntimeApi;
-use sp_consensus_pow::DifficultyApi;
 use sp_core::{H256, U256};
-use sp_runtime::{generic::BlockId, traits::Block as BlockT};
-use std::{marker::PhantomData, sync::Arc};
+
+// ── Core types (no_std) ─────────────────────────────────────────────
 
 /// Seal produced by the miner, encoded into `Vec<u8>` for the block digest.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, Debug)]
@@ -67,16 +74,64 @@ pub fn hash_meets_difficulty(hash: &H256, difficulty: U256) -> bool {
 	!overflowed
 }
 
-/// SHA-256 double-hash PoW algorithm backed by a runtime `DifficultyApi`.
+/// Standalone seal verification usable from both runtime and node.
 ///
-/// The struct carries a client reference so it can query the runtime for
-/// the current target difficulty.  Implements `sc_consensus_pow::PowAlgorithm`
-/// so it can be used directly with `sc-consensus-pow` block import and mining.
+/// Returns `Ok(true)` only when:
+///   1. The seal can be SCALE-decoded.
+///   2. The contained `work` hash meets the difficulty target.
+///   3. Re-computing the hash from `pre_hash` and `nonce` reproduces `work`.
+pub fn verify_seal(pre_hash: H256, raw_seal: &[u8], difficulty: U256) -> Result<bool, codec::Error> {
+	let seal = Seal::decode(&mut &raw_seal[..])?;
+
+	if !hash_meets_difficulty(&seal.work, difficulty) {
+		return Ok(false);
+	}
+
+	let compute = Compute { pre_hash, nonce: seal.nonce };
+	if compute.work() != seal.work {
+		return Ok(false);
+	}
+
+	Ok(true)
+}
+
+// ── Runtime API declaration (no_std) ────────────────────────────────
+
+sp_api::decl_runtime_apis! {
+	/// Runtime-side seal verification API.
+	///
+	/// Implementing this in the runtime makes the PoW algorithm
+	/// hot-swappable via a runtime upgrade.
+	pub trait PowVerifyApi {
+		fn verify_seal(pre_hash: H256, seal: Vec<u8>, difficulty: U256) -> bool;
+	}
+}
+
+// ── PowAlgorithm implementation (std only) ──────────────────────────
+
+#[cfg(feature = "std")]
+use sc_consensus_pow::{Error, PowAlgorithm};
+#[cfg(feature = "std")]
+use sp_api::ProvideRuntimeApi;
+#[cfg(feature = "std")]
+use sp_consensus_pow::DifficultyApi;
+#[cfg(feature = "std")]
+use sp_runtime::{generic::BlockId, traits::Block as BlockT};
+#[cfg(feature = "std")]
+use std::{marker::PhantomData, sync::Arc};
+
+/// SHA-256 double-hash PoW algorithm backed by a runtime `DifficultyApi`
+/// and `PowVerifyApi`.
+///
+/// Verification is delegated to the runtime so that the algorithm can be
+/// replaced by a runtime upgrade without restarting the node.
+#[cfg(feature = "std")]
 pub struct Sha256DoubleHashAlgorithm<B: BlockT, C> {
 	client: Arc<C>,
 	_phantom: PhantomData<B>,
 }
 
+#[cfg(feature = "std")]
 impl<B: BlockT, C> Sha256DoubleHashAlgorithm<B, C> {
 	/// Create a new algorithm instance backed by the given client.
 	pub fn new(client: Arc<C>) -> Self {
@@ -84,17 +139,19 @@ impl<B: BlockT, C> Sha256DoubleHashAlgorithm<B, C> {
 	}
 }
 
+#[cfg(feature = "std")]
 impl<B: BlockT, C> Clone for Sha256DoubleHashAlgorithm<B, C> {
 	fn clone(&self) -> Self {
 		Self { client: self.client.clone(), _phantom: PhantomData }
 	}
 }
 
+#[cfg(feature = "std")]
 impl<B, C> PowAlgorithm<B> for Sha256DoubleHashAlgorithm<B, C>
 where
 	B: BlockT<Hash = H256>,
 	C: ProvideRuntimeApi<B> + Send + Sync,
-	C::Api: DifficultyApi<B, U256>,
+	C::Api: DifficultyApi<B, U256> + PowVerifyApi<B>,
 {
 	type Difficulty = U256;
 
@@ -105,33 +162,25 @@ where
 			.map_err(|err| Error::Other(format!("Fetching difficulty from runtime failed: {err:?}")))
 	}
 
-	/// Verify a raw seal against `pre_hash` and `difficulty`.
-	///
-	/// Returns `Ok(true)` only when:
-	///   1. The seal can be SCALE-decoded.
-	///   2. The contained `work` hash meets the difficulty target.
-	///   3. Re-computing the hash from `pre_hash` and `nonce` reproduces `work`.
 	fn verify(
 		&self,
-		_parent: &BlockId<B>,
+		parent: &BlockId<B>,
 		pre_hash: &B::Hash,
 		_pre_digest: Option<&[u8]>,
 		seal: &sp_consensus_pow::Seal,
 		difficulty: U256,
 	) -> Result<bool, Error<B>> {
-		let seal = Seal::decode(&mut &seal[..])
-			.map_err(Error::Codec)?;
+		let parent_hash = match parent {
+			BlockId::Hash(h) => *h,
+			BlockId::Number(_) => {
+				return Err(Error::Other("BlockId::Number not supported for verify".into()));
+			},
+		};
 
-		if !hash_meets_difficulty(&seal.work, difficulty) {
-			return Ok(false);
-		}
-
-		let compute = Compute { pre_hash: *pre_hash, nonce: seal.nonce };
-		if compute.work() != seal.work {
-			return Ok(false);
-		}
-
-		Ok(true)
+		self.client
+			.runtime_api()
+			.verify_seal(parent_hash, *pre_hash, seal.clone(), difficulty)
+			.map_err(|err| Error::Runtime(format!("Runtime verify_seal failed: {err:?}")))
 	}
 }
 

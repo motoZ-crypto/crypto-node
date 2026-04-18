@@ -11,14 +11,22 @@ publish = false
 
 [dependencies]
 codec = { features = ["derive"], workspace = true }
-sc-consensus-pow.default-features = true
-sc-consensus-pow.workspace = true
 sha2.workspace = true
-sp-api.default-features = true
 sp-api.workspace = true
-sp-consensus-pow.default-features = true
 sp-consensus-pow.workspace = true
-sp-core.default-features = true
 sp-core.workspace = true
-sp-runtime.default-features = true
-sp-runtime.workspace = true
+
+# std-only dependencies
+sc-consensus-pow = { workspace = true, default-features = true, optional = true }
+sp-runtime = { workspace = true, default-features = true, optional = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"sp-api/std",
+	"sp-consensus-pow/std",
+	"sp-core/std",
+	"sc-consensus-pow",
+	"sp-runtime/std",
+]
