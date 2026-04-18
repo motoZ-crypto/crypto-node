@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig};
+use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT};
 use alloc::{vec, vec::Vec};
 use frame_support::build_struct_json_patch;
 use serde_json::Value;
@@ -24,18 +24,20 @@ use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_genesis_builder::{self, PresetId};
 use sp_keyring::Sr25519Keyring;
 
-// Returns the genesis config presets populated with given parameters.
+// Total supply: 1,000,000,000 UNIT, evenly distributed among endowed accounts.
 fn testnet_genesis(
 	initial_authorities: Vec<(AuraId, GrandpaId)>,
 	endowed_accounts: Vec<AccountId>,
 	root: AccountId,
 ) -> Value {
+	let total_supply: u128 = 1_000_000_000 * UNIT;
+	let balance_per_account = total_supply / endowed_accounts.len() as u128;
 	build_struct_json_patch!(RuntimeGenesisConfig {
 		balances: BalancesConfig {
 			balances: endowed_accounts
 				.iter()
 				.cloned()
-				.map(|k| (k, 1u128 << 60))
+				.map(|k| (k, balance_per_account))
 				.collect::<Vec<_>>(),
 		},
 		aura: pallet_aura::GenesisConfig {
