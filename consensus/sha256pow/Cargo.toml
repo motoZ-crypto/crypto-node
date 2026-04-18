@@ -1,0 +1,22 @@
+[package]
+name = "sha256pow"
+description = "SHA-256 double-hash PoW placeholder algorithm for the crypto chain."
+version = "0.1.0"
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+sha2.workspace = true
+sp-api.default-features = true
+sp-api.workspace = true
+sp-consensus-pow.default-features = true
+sp-consensus-pow.workspace = true
+sp-core.default-features = true
+sp-core.workspace = true
+sp-runtime.default-features = true
+sp-runtime.workspace = true
