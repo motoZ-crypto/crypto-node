@@ -18,6 +18,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use codec::{Decode, Encode};
+#[cfg(feature = "std")]
+use sc_consensus_pow::{Error as PowError, PowAlgorithm};
 use sha2::{Digest, Sha256};
 use sp_core::{H256, U256};
 
@@ -110,8 +112,6 @@ sp_api::decl_runtime_apis! {
 // ── PowAlgorithm implementation (std only) ──────────────────────────
 
 #[cfg(feature = "std")]
-use sc_consensus_pow::{Error, PowAlgorithm};
-#[cfg(feature = "std")]
 use sp_api::ProvideRuntimeApi;
 #[cfg(feature = "std")]
 use sp_consensus_pow::DifficultyApi;
@@ -150,16 +150,18 @@ impl<B: BlockT, C> Clone for Sha256DoubleHashAlgorithm<B, C> {
 impl<B, C> PowAlgorithm<B> for Sha256DoubleHashAlgorithm<B, C>
 where
 	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B> + Send + Sync,
+	C: ProvideRuntimeApi<B> + sp_blockchain::HeaderBackend<B> + Send + Sync,
 	C::Api: DifficultyApi<B, U256> + PowVerifyApi<B>,
 {
 	type Difficulty = U256;
 
-	fn difficulty(&self, parent: B::Hash) -> Result<U256, Error<B>> {
+	fn difficulty(&self, parent: B::Hash) -> Result<U256, PowError<B>> {
 		self.client
 			.runtime_api()
 			.difficulty(parent)
-			.map_err(|err| Error::Other(format!("Fetching difficulty from runtime failed: {err:?}")))
+			.map_err(|err| PowError::Environment(format!(
+				"Fetching difficulty from runtime failed: {err:?}"
+			)))
 	}
 
 	fn verify(
@@ -169,18 +171,20 @@ where
 		_pre_digest: Option<&[u8]>,
 		seal: &sp_consensus_pow::Seal,
 		difficulty: U256,
-	) -> Result<bool, Error<B>> {
+	) -> Result<bool, PowError<B>> {
 		let parent_hash = match parent {
 			BlockId::Hash(h) => *h,
 			BlockId::Number(_) => {
-				return Err(Error::Other("BlockId::Number not supported for verify".into()));
+				return Err(PowError::Environment(
+					"BlockId::Number not supported for verify".into(),
+				));
 			},
 		};
 
 		self.client
 			.runtime_api()
 			.verify_seal(parent_hash, *pre_hash, seal.clone(), difficulty)
-			.map_err(|err| Error::Runtime(format!("Runtime verify_seal failed: {err:?}")))
+			.map_err(|err| PowError::Runtime(format!("Runtime verify_seal failed: {err:?}")))
 	}
 }
 
