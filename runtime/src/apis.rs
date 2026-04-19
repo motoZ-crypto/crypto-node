@@ -38,10 +38,6 @@ use sp_runtime::{
 };
 use sp_version::RuntimeVersion;
 
-/// Initial fixed mining difficulty.
-/// This will be replaced by a dynamic adjustment algorithm later.
-const INITIAL_DIFFICULTY: u64 = 1_000_000;
-
 // Local module imports
 use super::{
 	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
@@ -252,7 +248,7 @@ impl_runtime_apis! {
 
 	impl sp_consensus_pow::DifficultyApi<Block, U256> for Runtime {
 		fn difficulty() -> U256 {
-			U256::from(INITIAL_DIFFICULTY)
+			pallet_difficulty::Pallet::<Runtime>::current_difficulty()
 		}
 	}
 

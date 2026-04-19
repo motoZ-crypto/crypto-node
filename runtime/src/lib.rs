@@ -220,4 +220,7 @@ mod runtime {
 
 	#[runtime::pallet_index(8)]
 	pub type BlockReward = pallet_reward;
+
+	#[runtime::pallet_index(9)]
+	pub type Difficulty = pallet_difficulty;
 }

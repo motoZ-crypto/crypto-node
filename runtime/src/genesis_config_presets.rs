@@ -15,10 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT};
+use crate::{AccountId, BalancesConfig, DifficultyConfig, RuntimeGenesisConfig, SudoConfig, UNIT};
 use alloc::{vec, vec::Vec};
 use frame_support::build_struct_json_patch;
 use serde_json::Value;
+use sp_core::U256;
 use sp_genesis_builder::{self, PresetId};
 use sp_keyring::Sr25519Keyring;
 
@@ -28,6 +29,7 @@ fn testnet_genesis(
 ) -> Value {
 	let total_supply: u128 = 1_000_000_000 * UNIT;
 	let balance_per_account = total_supply / endowed_accounts.len() as u128;
+	let initial_difficulty = U256::from(1_000_000u64);
 	build_struct_json_patch!(RuntimeGenesisConfig {
 		balances: BalancesConfig {
 			balances: endowed_accounts
@@ -37,6 +39,13 @@ fn testnet_genesis(
 				.collect::<Vec<_>>(),
 		},
 		sudo: SudoConfig { key: Some(root) },
+		difficulty: DifficultyConfig {
+			initial_difficulty,
+			anchor_target: U256::zero(),
+			anchor_timestamp: 0,
+			anchor_height: 0,
+			..Default::default()
+		},
 	})
 }
 

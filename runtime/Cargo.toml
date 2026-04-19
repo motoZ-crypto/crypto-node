@@ -23,6 +23,7 @@ frame-system-rpc-runtime-api.workspace = true
 frame-system.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
 pallet-balances.workspace = true
+pallet-difficulty.workspace = true
 pallet-reward.workspace = true
 pallet-sudo.workspace = true
 pallet-template.workspace = true
@@ -62,6 +63,7 @@ std = [
 	"frame-system/std",
 	"frame-try-runtime?/std",
 	"pallet-balances/std",
+	"pallet-difficulty/std",
 	"pallet-reward/std",
 	"pallet-sudo/std",
 	"pallet-template/std",
@@ -93,6 +95,7 @@ runtime-benchmarks = [
 	"frame-system-benchmarking/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
+	"pallet-difficulty/runtime-benchmarks",
 	"pallet-reward/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
 	"pallet-template/runtime-benchmarks",
@@ -107,6 +110,7 @@ try-runtime = [
 	"frame-system/try-runtime",
 	"frame-try-runtime/try-runtime",
 	"pallet-balances/try-runtime",
+	"pallet-difficulty/try-runtime",
 	"pallet-reward/try-runtime",
 	"pallet-sudo/try-runtime",
 	"pallet-template/try-runtime",
