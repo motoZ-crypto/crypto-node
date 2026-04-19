@@ -51,10 +51,7 @@ pub mod opaque {
 }
 
 impl_opaque_keys! {
-	pub struct SessionKeys {
-		pub aura: Aura,
-		pub grandpa: Grandpa,
-	}
+	pub struct SessionKeys {}
 }
 
 // To learn more about runtime versioning, see:
@@ -208,12 +205,6 @@ mod runtime {
 	#[runtime::pallet_index(1)]
 	pub type Timestamp = pallet_timestamp;
 
-	#[runtime::pallet_index(2)]
-	pub type Aura = pallet_aura;
-
-	#[runtime::pallet_index(3)]
-	pub type Grandpa = pallet_grandpa;
-
 	#[runtime::pallet_index(4)]
 	pub type Balances = pallet_balances;
 
@@ -226,4 +217,7 @@ mod runtime {
 	// Include the custom logic from the pallet-template in the runtime.
 	#[runtime::pallet_index(7)]
 	pub type Template = pallet_template;
+
+	#[runtime::pallet_index(8)]
+	pub type BlockReward = pallet_reward;
 }

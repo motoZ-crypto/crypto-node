@@ -7,6 +7,10 @@ pub struct Cli {
 
 	#[clap(flatten)]
 	pub run: RunCmd,
+
+	/// Enable PoW block mining. Without this flag the node only syncs.
+	#[arg(long)]
+	pub miner: bool,
 }
 
 #[derive(Debug, clap::Subcommand)]
