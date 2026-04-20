@@ -10255,6 +10255,7 @@ dependencies = [
  "sp-runtime",
  "sp-session",
  "sp-storage",
+ "sp-timestamp",
  "sp-transaction-pool",
  "sp-version",
  "substrate-wasm-builder",
