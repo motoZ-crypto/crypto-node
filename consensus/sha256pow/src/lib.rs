@@ -114,7 +114,7 @@ sp_api::decl_runtime_apis! {
 #[cfg(feature = "std")]
 use sp_api::ProvideRuntimeApi;
 #[cfg(feature = "std")]
-use sp_consensus_pow::DifficultyApi;
+use pallet_difficulty::DifficultyApi;
 #[cfg(feature = "std")]
 use sp_runtime::{generic::BlockId, traits::Block as BlockT};
 #[cfg(feature = "std")]
@@ -151,16 +151,23 @@ impl<B, C> PowAlgorithm<B> for Sha256DoubleHashAlgorithm<B, C>
 where
 	B: BlockT<Hash = H256>,
 	C: ProvideRuntimeApi<B> + sp_blockchain::HeaderBackend<B> + Send + Sync,
-	C::Api: DifficultyApi<B, U256> + PowVerifyApi<B>,
+	C::Api: DifficultyApi<B> + PowVerifyApi<B>,
 {
 	type Difficulty = U256;
 
 	fn difficulty(&self, parent: B::Hash) -> Result<U256, PowError<B>> {
+		// Use wall-clock time so difficulty naturally decays even when no
+		// blocks are being produced.
+		let now_secs = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap_or_default()
+			.as_secs();
+
 		self.client
 			.runtime_api()
-			.difficulty(parent)
+			.realtime_difficulty(parent, now_secs)
 			.map_err(|err| PowError::Environment(format!(
-				"Fetching difficulty from runtime failed: {err:?}"
+				"Fetching realtime difficulty from runtime failed: {err:?}"
 			)))
 	}
 

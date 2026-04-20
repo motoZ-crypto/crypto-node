@@ -11,6 +11,7 @@ publish = false
 
 [dependencies]
 codec = { features = ["derive"], workspace = true }
+pallet-difficulty.workspace = true
 sha2.workspace = true
 sp-api.workspace = true
 sp-consensus-pow.workspace = true
@@ -25,6 +26,7 @@ sp-runtime = { workspace = true, default-features = true, optional = true }
 default = ["std"]
 std = [
 	"codec/std",
+	"pallet-difficulty/std",
 	"sp-api/std",
 	"sp-consensus-pow/std",
 	"sp-core/std",
