@@ -42,6 +42,7 @@ use sp_version::RuntimeVersion;
 use super::{
 	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
 	RuntimeCall, RuntimeGenesisConfig, SessionKeys, System, TransactionPayment, VERSION,
+	inherent_checks::check_timestamp_drift,
 };
 
 impl_runtime_apis! {
@@ -96,7 +97,35 @@ impl_runtime_apis! {
 			block: <Block as BlockT>::LazyBlock,
 			data: sp_inherents::InherentData,
 		) -> sp_inherents::CheckInherentsResult {
-			data.check_extrinsics(&block)
+			use sp_runtime::traits::LazyBlock as _;
+			use sp_timestamp::TimestampInherentData;
+
+			let mut result = data.check_extrinsics(&block);
+
+			// Enforce 2-second max future timestamp drift (FR-DIFF-005).
+			// pallet_timestamp hardcodes 30s; we tighten it to 2s to prevent
+			// miners from gaming ASERT difficulty calculations.
+			if let Ok(Some(node_ts)) = data.timestamp_inherent_data() {
+				let node_ts_ms: u64 = *node_ts;
+				let parent_ts_ms: u64 = pallet_timestamp::Now::<Runtime>::get();
+
+				for ext_result in block.extrinsics() {
+					let Ok(ext) = ext_result else { continue };
+					if let RuntimeCall::Timestamp(pallet_timestamp::Call::set { now }) =
+						&ext.function
+					{
+						check_timestamp_drift(
+							&mut result,
+							*now,
+							node_ts_ms,
+							parent_ts_ms,
+						);
+						break;
+					}
+				}
+			}
+
+			result
 		}
 	}
 
