@@ -246,9 +246,19 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl sp_consensus_pow::DifficultyApi<Block, U256> for Runtime {
-		fn difficulty() -> U256 {
-			pallet_difficulty::Pallet::<Runtime>::current_difficulty()
+	impl pallet_difficulty::DifficultyApi<Block> for Runtime {
+		fn anchor_params() -> (U256, u64, u32, u64, u64) {
+			(
+				pallet_difficulty::AnchorTarget::<Runtime>::get(),
+				pallet_difficulty::AnchorTimestamp::<Runtime>::get(),
+				pallet_difficulty::AnchorHeight::<Runtime>::get(),
+				<<Runtime as pallet_difficulty::Config>::TargetBlockTime as frame_support::traits::Get<u64>>::get(),
+				<<Runtime as pallet_difficulty::Config>::Halflife as frame_support::traits::Get<u64>>::get(),
+			)
+		}
+
+		fn realtime_difficulty(now_secs: u64) -> U256 {
+			pallet_difficulty::Pallet::<Runtime>::realtime_difficulty(now_secs)
 		}
 	}
 

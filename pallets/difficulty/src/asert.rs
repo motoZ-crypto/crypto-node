@@ -3,7 +3,7 @@
 //! Implements the formula:
 //!
 //! ```text
-//! next_target = anchor_target × 2^((time_delta - target_block_time × (height_delta + 1)) / halflife)
+//! next_target = anchor_target × 2^((time_delta - target_block_time × height_delta) / halflife)
 //! ```
 //!
 //! All arithmetic is integer-only using 16-bit fixed-point representation.
@@ -36,9 +36,9 @@ pub fn compute_next_target(
 	target_block_time: u64,
 	halflife: u64,
 ) -> U256 {
-	// exponent = (time_delta - target_block_time * (height_delta + 1)) / halflife
+	// exponent = (time_delta - target_block_time * height_delta) / halflife
 	// In fixed-point: exponent_fp = ((time_delta - ideal_time) << FRAC_BITS) / halflife
-	let ideal_time = target_block_time as i64 * (height_delta as i64 + 1);
+	let ideal_time = target_block_time as i64 * height_delta as i64;
 	let exponent_numer = (time_delta - ideal_time) * FRAC_ONE;
 	let halflife_i64 = halflife as i64;
 	// Division rounds toward zero; this is acceptable for the exponent.
@@ -122,9 +122,9 @@ mod tests {
 	fn on_schedule_returns_anchor() {
 		// If blocks are exactly on schedule, target should equal anchor_target.
 		let anchor = U256::from(1_000_000u64);
-		// time_delta = target_block_time * (height_delta + 1)
-		// e.g. height_delta=9 (10th block), time_delta = 20 * 10 = 200
-		let result = compute_next_target(anchor, 200, 9, 20, 1800);
+		// time_delta = target_block_time * height_delta
+		// e.g. height_delta=10 (10th block after anchor), time_delta = 20 * 10 = 200
+		let result = compute_next_target(anchor, 200, 10, 20, 1800);
 		// Should be very close to anchor (within rounding).
 		let diff = if result > anchor { result - anchor } else { anchor - result };
 		assert!(diff <= U256::from(1u64), "expected ~anchor, got {:?}", result);
@@ -134,8 +134,8 @@ mod tests {
 	fn slow_blocks_increase_target() {
 		// Blocks coming slower than expected → target increases (difficulty decreases).
 		let anchor = U256::from(1_000_000u64);
-		// height_delta=9, ideal time = 200s, actual time = 400s (twice as slow)
-		let result = compute_next_target(anchor, 400, 9, 20, 1800);
+		// height_delta=10, ideal time = 200s, actual time = 400s (twice as slow)
+		let result = compute_next_target(anchor, 400, 10, 20, 1800);
 		assert!(result > anchor, "slow blocks should increase target");
 	}
 
@@ -143,8 +143,8 @@ mod tests {
 	fn fast_blocks_decrease_target() {
 		// Blocks coming faster than expected → target decreases (difficulty increases).
 		let anchor = U256::from(1_000_000u64);
-		// height_delta=9, ideal time = 200s, actual time = 100s (twice as fast)
-		let result = compute_next_target(anchor, 100, 9, 20, 1800);
+		// height_delta=10, ideal time = 200s, actual time = 100s (twice as fast)
+		let result = compute_next_target(anchor, 100, 10, 20, 1800);
 		assert!(result < anchor, "fast blocks should decrease target");
 	}
 
@@ -152,14 +152,10 @@ mod tests {
 	fn halflife_halves_target_when_fast() {
 		// If blocks arrive halflife seconds ahead of schedule, target should halve.
 		let anchor = U256::from(1u64) << 128;
-		// height_delta=0, ideal time=20s, actual time = 20 - 1800 = -1780
-		// That's odd — let's think differently:
-		// exponent = (time_delta - 20*(0+1)) / 1800
-		// For target to halve: exponent = -1 → time_delta - 20 = -1800 → time_delta = -1780
-		// Negative time_delta doesn't make sense for real blocks.
-		// Instead: for target to double (halflife = +1800 behind schedule):
-		// exponent = +1 → time_delta - 20 = 1800 → time_delta = 1820
-		let result = compute_next_target(anchor, 1820, 0, 20, 1800);
+		// For target to double (halflife behind schedule):
+		// exponent = +1 → time_delta - 20*1 = 1800 → time_delta = 1820
+		// height_delta=1 (one block after anchor)
+		let result = compute_next_target(anchor, 1820, 1, 20, 1800);
 		let expected = anchor * U256::from(2u64);
 		// Allow ~1% tolerance due to polynomial approximation.
 		let tolerance = expected / U256::from(100u64);
@@ -170,11 +166,11 @@ mod tests {
 	#[test]
 	fn no_blocks_for_30min_halves_difficulty() {
 		// 30 minutes (1800s) without blocks from anchor.
-		// height_delta=0 (first block after anchor), time_delta = 1800 + 20 = 1820
+		// height_delta=1 (first block after anchor), time_delta = 1800 + 20 = 1820
 		// exponent = (1820 - 20*1) / 1800 = 1800/1800 = 1
 		// target doubles → difficulty halves.
 		let anchor = U256::from(1u64) << 128;
-		let result = compute_next_target(anchor, 1820, 0, 20, 1800);
+		let result = compute_next_target(anchor, 1820, 1, 20, 1800);
 		let expected = anchor * U256::from(2u64);
 		let tolerance = expected / U256::from(100u64);
 		let diff = if result > expected { result - expected } else { expected - result };
