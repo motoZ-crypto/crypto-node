@@ -1,4 +1,4 @@
-use solochain_template_runtime::apis::{check_timestamp_drift, MAX_TIMESTAMP_DRIFT_MS};
+use solochain_template_runtime::inherent_checks::{check_timestamp_drift, MAX_TIMESTAMP_DRIFT_MS};
 use sp_inherents::CheckInherentsResult;
 
 fn empty_result() -> CheckInherentsResult {
