@@ -52,7 +52,9 @@ pub mod opaque {
 }
 
 impl_opaque_keys! {
-	pub struct SessionKeys {}
+	pub struct SessionKeys {
+		pub grandpa: Grandpa,
+	}
 }
 
 // To learn more about runtime versioning, see:
