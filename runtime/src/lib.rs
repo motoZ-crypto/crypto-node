@@ -224,4 +224,7 @@ mod runtime {
 
 	#[runtime::pallet_index(9)]
 	pub type Difficulty = pallet_difficulty;
+
+	#[runtime::pallet_index(10)]
+	pub type Grandpa = pallet_grandpa;
 }
