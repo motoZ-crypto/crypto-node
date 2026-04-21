@@ -3,7 +3,7 @@
 use futures::FutureExt;
 use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::LongestChain;
-use sc_consensus_grandpa::SharedVoterState;
+use sc_consensus_grandpa::{GrandpaBlockImport, LinkHalf, SharedVoterState};
 use sc_consensus_pow::PowBlockImport;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
@@ -21,7 +21,6 @@ pub(crate) type FullClient = sc_service::TFullClient<
 >;
 type FullBackend = sc_service::TFullBackend<Block>;
 type FullSelectChain = LongestChain<FullBackend, Block>;
-type FullGrandpaBlockImport = sc_consensus_grandpa::GrandpaBlockImport<FullBackend, Block, FullClient, FullSelectChain>;
 
 /// The minimum period of blocks on which justifications will be imported and generated.
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 30;
@@ -33,8 +32,8 @@ pub type Service = sc_service::PartialComponents<
 	sc_consensus::DefaultImportQueue<Block>,
 	sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
 	(
-		FullGrandpaBlockImport,
-		sc_consensus_grandpa::LinkHalf<Block, FullClient, FullSelectChain>,
+		GrandpaBlockImport<FullBackend, Block, FullClient, FullSelectChain>,
+		LinkHalf<Block, FullClient, FullSelectChain>,
 		Option<Telemetry>,
 	),
 >;
