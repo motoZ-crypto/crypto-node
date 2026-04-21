@@ -24,6 +24,7 @@ frame-system.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
 pallet-balances.workspace = true
 pallet-difficulty.workspace = true
+pallet-grandpa.workspace = true
 pallet-reward.workspace = true
 pallet-sudo.workspace = true
 pallet-template.workspace = true
@@ -35,6 +36,7 @@ serde_json = { workspace = true, default-features = false, features = ["alloc"] 
 sha256pow.workspace = true
 sp-api.workspace = true
 sp-block-builder.workspace = true
+sp-consensus-grandpa = { features = ["serde"], workspace = true }
 sp-consensus-pow.workspace = true
 sp-core = { features = ["serde"], workspace = true }
 sp-genesis-builder.workspace = true
@@ -65,6 +67,7 @@ std = [
 	"frame-try-runtime?/std",
 	"pallet-balances/std",
 	"pallet-difficulty/std",
+	"pallet-grandpa/std",
 	"pallet-reward/std",
 	"pallet-sudo/std",
 	"pallet-template/std",
@@ -76,6 +79,7 @@ std = [
 	"sha256pow/std",
 	"sp-api/std",
 	"sp-block-builder/std",
+	"sp-consensus-grandpa/std",
 	"sp-consensus-pow/std",
 	"sp-core/std",
 	"sp-genesis-builder/std",
@@ -98,6 +102,7 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-difficulty/runtime-benchmarks",
+	"pallet-grandpa/runtime-benchmarks",
 	"pallet-reward/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
 	"pallet-template/runtime-benchmarks",
@@ -113,6 +118,7 @@ try-runtime = [
 	"frame-try-runtime/try-runtime",
 	"pallet-balances/try-runtime",
 	"pallet-difficulty/try-runtime",
+	"pallet-grandpa/try-runtime",
 	"pallet-reward/try-runtime",
 	"pallet-sudo/try-runtime",
 	"pallet-template/try-runtime",
