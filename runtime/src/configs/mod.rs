@@ -176,3 +176,13 @@ impl pallet_difficulty::Config for Runtime {
 	type TargetBlockTime = TargetBlockTime;
 	type Halflife = DifficultyHalflife;
 }
+
+impl pallet_grandpa::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = ();
+	type MaxAuthorities = ConstU32<1000>;
+	type MaxNominators = ConstU32<0>;
+	type MaxSetIdSessionEntries = ConstU64<0>;
+	type KeyOwnerProof = sp_core::Void;
+	type EquivocationReportSystem = ();
+}
