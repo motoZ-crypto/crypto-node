@@ -761,3 +761,141 @@ fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<V
 		_ => Err(Error::<B>::HeaderUnsealed(hash)),
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::finality_conflicts;
+	use sp_core::H256;
+	use sp_runtime::{
+		testing::{Block as TestBlock, Header as TestHeader},
+		OpaqueExtrinsic,
+	};
+	use std::collections::HashMap;
+
+	type Block = TestBlock<OpaqueExtrinsic>;
+
+	/// Build a linear chain of `len` headers (heights `0..len`). The `salt`
+	/// byte perturbs the headers so that two chains built with different salts
+	/// produce different hashes at every height (i.e. they are disjoint forks).
+	fn build_chain(len: u64, salt: u8) -> (Vec<H256>, HashMap<H256, TestHeader>) {
+		let mut store = HashMap::new();
+		let mut hashes = Vec::with_capacity(len as usize);
+		let mut parent_hash = H256::zero();
+		for n in 0..len {
+			let mut header = TestHeader::new_from_number(n);
+			header.parent_hash = parent_hash;
+			header.extrinsics_root = H256::repeat_byte(salt);
+			let hash = header.hash();
+			store.insert(hash, header);
+			hashes.push(hash);
+			parent_hash = hash;
+		}
+		(hashes, store)
+	}
+
+	fn lookup(
+		store: &HashMap<H256, TestHeader>,
+	) -> impl Fn(H256) -> Result<Option<TestHeader>, sp_blockchain::Error> + '_ {
+		move |h| Ok(store.get(&h).cloned())
+	}
+
+	#[test]
+	fn non_conflicting_extension_passes() {
+		let (hashes, store) = build_chain(8, 1);
+		let finalized_hash = hashes[3];
+		let finalized_number = 3u64;
+		// Candidate is hashes[5] built on the canonical chain.
+		let conflicts = finality_conflicts::<Block, _>(
+			hashes[5],
+			5,
+			hashes[4],
+			finalized_hash,
+			finalized_number,
+			lookup(&store),
+		)
+		.unwrap();
+		assert!(!conflicts, "extension on the finalized chain must not conflict");
+	}
+
+	#[test]
+	fn conflicting_higher_fork_rejected() {
+		let (canon, mut store) = build_chain(8, 1);
+		let (fork, fork_store) = build_chain(8, 2);
+		store.extend(fork_store);
+		let finalized_hash = canon[3];
+		let finalized_number = 3u64;
+		// Candidate at height 5 on the disjoint fork chain.
+		let conflicts = finality_conflicts::<Block, _>(
+			fork[5],
+			5,
+			fork[4],
+			finalized_hash,
+			finalized_number,
+			lookup(&store),
+		)
+		.unwrap();
+		assert!(conflicts, "fork not built on the finalized chain must conflict");
+	}
+
+	#[test]
+	fn block_at_finalized_height_must_match() {
+		let (canon, mut store) = build_chain(5, 1);
+		let (fork, fork_store) = build_chain(5, 2);
+		store.extend(fork_store);
+		let finalized_hash = canon[3];
+		let finalized_number = 3u64;
+		// Same hash at finalized height: no conflict.
+		let conflicts = finality_conflicts::<Block, _>(
+			canon[3],
+			3,
+			canon[2],
+			finalized_hash,
+			finalized_number,
+			lookup(&store),
+		)
+		.unwrap();
+		assert!(!conflicts);
+		// Different hash at finalized height: conflict.
+		let conflicts = finality_conflicts::<Block, _>(
+			fork[3],
+			3,
+			fork[2],
+			finalized_hash,
+			finalized_number,
+			lookup(&store),
+		)
+		.unwrap();
+		assert!(conflicts);
+	}
+
+	#[test]
+	fn block_below_finalized_must_be_on_chain() {
+		let (canon, mut store) = build_chain(8, 1);
+		let (fork, fork_store) = build_chain(8, 2);
+		store.extend(fork_store);
+		let finalized_hash = canon[5];
+		let finalized_number = 5u64;
+		// Canonical ancestor at height 2: no conflict.
+		let conflicts = finality_conflicts::<Block, _>(
+			canon[2],
+			2,
+			canon[1],
+			finalized_hash,
+			finalized_number,
+			lookup(&store),
+		)
+		.unwrap();
+		assert!(!conflicts);
+		// Fork block at height 2 (not on the finalized chain): conflict.
+		let conflicts = finality_conflicts::<Block, _>(
+			fork[2],
+			2,
+			fork[1],
+			finalized_hash,
+			finalized_number,
+			lookup(&store),
+		)
+		.unwrap();
+		assert!(conflicts);
+	}
+}
