@@ -8699,6 +8699,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "sc-consensus-grandpa-rpc"
+version = "0.41.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d69e54298c266d3ede4d32fd676e044d1303b0178dd973a68995fd1720b4b5ae"
+dependencies = [
+ "finality-grandpa",
+ "futures",
+ "jsonrpsee",
+ "log",
+ "parity-scale-codec",
+ "sc-client-api",
+ "sc-consensus-grandpa",
+ "sc-rpc",
+ "serde",
+ "sp-blockchain",
+ "sp-core",
+ "sp-runtime",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "sc-consensus-pow"
 version = "0.55.0"
 dependencies = [
@@ -10284,10 +10305,12 @@ dependencies = [
  "sc-client-api",
  "sc-consensus",
  "sc-consensus-grandpa",
+ "sc-consensus-grandpa-rpc",
  "sc-consensus-pow",
  "sc-executor",
  "sc-network",
  "sc-offchain",
+ "sc-rpc",
  "sc-service",
  "sc-telemetry",
  "sc-transaction-pool",
