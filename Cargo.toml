@@ -43,10 +43,12 @@ sc-client-api = { version = "45.0.0", default-features = false }
 sc-consensus = { version = "0.55.0", default-features = false }
 sc-consensus-aura = { version = "0.56.0", default-features = false }
 sc-consensus-grandpa = { version = "0.41.0", default-features = false }
+sc-consensus-grandpa-rpc = { version = "0.41.0", default-features = false }
 sc-consensus-pow = { path = "./consensus/sc-consensus-pow", default-features = false }
 sc-executor = { version = "0.48.0", default-features = false }
 sc-network = { version = "0.56.0", default-features = false }
 sc-offchain = { version = "51.0.0", default-features = false }
+sc-rpc = { version = "51.0.0", default-features = false }
 sc-service = { version = "0.57.0", default-features = false }
 sc-telemetry = { version = "30.0.1", default-features = false }
 sc-transaction-pool = { version = "45.0.0", default-features = false }

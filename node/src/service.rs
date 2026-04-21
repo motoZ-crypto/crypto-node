@@ -1,8 +1,9 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::FutureExt;
-use sc_client_api::Backend;
+use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::LongestChain;
+use sc_consensus_grandpa::{GrandpaBlockImport, LinkHalf, SharedVoterState};
 use sc_consensus_pow::PowBlockImport;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
@@ -21,13 +22,20 @@ pub(crate) type FullClient = sc_service::TFullClient<
 type FullBackend = sc_service::TFullBackend<Block>;
 type FullSelectChain = LongestChain<FullBackend, Block>;
 
+/// The minimum period of blocks on which justifications will be imported and generated.
+const GRANDPA_JUSTIFICATION_PERIOD: u32 = 30;
+
 pub type Service = sc_service::PartialComponents<
 	FullClient,
 	FullBackend,
 	FullSelectChain,
 	sc_consensus::DefaultImportQueue<Block>,
 	sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
-	Option<Telemetry>,
+	(
+		GrandpaBlockImport<FullBackend, Block, FullClient, FullSelectChain>,
+		LinkHalf<Block, FullClient, FullSelectChain>,
+		Option<Telemetry>,
+	),
 >;
 
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
@@ -72,8 +80,16 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 	let algorithm = Sha256DoubleHashAlgorithm::new(client.clone());
 
-	let pow_block_import = PowBlockImport::new(
+	let (grandpa_block_import, grandpa_link) = sc_consensus_grandpa::block_import(
 		client.clone(),
+		GRANDPA_JUSTIFICATION_PERIOD,
+		&client,
+		select_chain.clone(),
+		telemetry.as_ref().map(|x| x.handle()),
+	)?;
+
+	let pow_block_import = PowBlockImport::new(
+		grandpa_block_import.clone(),
 		client.clone(),
 		algorithm.clone(),
 		0u32.into(),
@@ -83,7 +99,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 	let import_queue = sc_consensus_pow::import_queue(
 		Box::new(pow_block_import),
-		None,
+		Some(Box::new(grandpa_block_import.clone())),
 		algorithm,
 		&task_manager.spawn_essential_handle(),
 		config.prometheus_registry(),
@@ -97,7 +113,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: telemetry,
+		other: (grandpa_block_import, grandpa_link, telemetry),
 	})
 }
 
@@ -106,7 +122,7 @@ pub fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
 	config: Configuration,
-	mine: bool,
+	is_miner: bool,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -116,15 +132,33 @@ pub fn new_full<
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: mut telemetry,
+		other: (grandpa_block_import, grandpa_link, mut telemetry),
 	} = new_partial(&config)?;
 
-	let net_config = sc_network::config::FullNetworkConfiguration::<
+	let mut net_config = sc_network::config::FullNetworkConfiguration::<
 		Block,
 		<Block as sp_runtime::traits::Block>::Hash,
 		N,
 	>::new(&config.network, config.prometheus_registry().cloned());
 	let metrics = N::register_notification_metrics(config.prometheus_registry());
+
+	let peer_store_handle = net_config.peer_store_handle();
+	let genesis_hash = client
+		.block_hash(0)
+		.ok()
+		.flatten()
+		.expect("Genesis block exists; qed");
+	let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(
+		&genesis_hash,
+		&config.chain_spec,
+	);
+	let (grandpa_protocol_config, grandpa_notification_service) =
+		sc_consensus_grandpa::grandpa_peers_set_config::<_, N>(
+			grandpa_protocol_name.clone(),
+			metrics.clone(),
+			peer_store_handle,
+		);
+	net_config.add_notification_protocol(grandpa_protocol_config);
 
 	let (network, system_rpc_tx, tx_handler_controller, sync_service) =
 		sc_service::build_network(sc_service::BuildNetworkParams {
@@ -162,14 +196,38 @@ pub fn new_full<
 		);
 	}
 
+	let role = config.role;
+	let is_authority = role.is_authority();
 	let prometheus_registry = config.prometheus_registry().cloned();
+
+	let shared_voter_state = SharedVoterState::empty();
+	let shared_authority_set = grandpa_link.shared_authority_set().clone();
+	let justification_stream = grandpa_link.justification_stream();
+	let finality_proof_provider = sc_consensus_grandpa::FinalityProofProvider::new_for_service(
+		backend.clone(),
+		Some(shared_authority_set.clone()),
+	);
 
 	let rpc_extensions_builder = {
 		let client = client.clone();
 		let pool = transaction_pool.clone();
+		let shared_voter_state = shared_voter_state.clone();
+		let shared_authority_set = shared_authority_set.clone();
+		let justification_stream = justification_stream.clone();
+		let finality_proof_provider = finality_proof_provider.clone();
 
-		Box::new(move |_| {
-			let deps = crate::rpc::FullDeps { client: client.clone(), pool: pool.clone() };
+		Box::new(move |subscription_executor: sc_rpc::SubscriptionTaskExecutor| {
+			let deps = crate::rpc::FullDeps {
+				client: client.clone(),
+				pool: pool.clone(),
+				grandpa: crate::rpc::GrandpaDeps {
+					shared_voter_state: shared_voter_state.clone(),
+					shared_authority_set: shared_authority_set.clone(),
+					justification_stream: justification_stream.clone(),
+					subscription_executor,
+					finality_provider: finality_proof_provider.clone(),
+				},
+			};
 			crate::rpc::create_full(deps).map_err(Into::into)
 		})
 	};
@@ -190,7 +248,45 @@ pub fn new_full<
 		tracing_execute_block: None,
 	})?;
 
-	if mine {
+	// GRANDPA voter / observer.
+	let grandpa_config = sc_consensus_grandpa::Config {
+		gossip_duration: Duration::from_secs(2),
+		justification_generation_period: GRANDPA_JUSTIFICATION_PERIOD,
+		name: None,
+		observer_enabled: false,
+		keystore: is_authority.then(|| keystore_container.keystore()),
+		local_role: role,
+		telemetry: telemetry.as_ref().map(|x| x.handle()),
+		protocol_name: grandpa_protocol_name,
+	};
+
+	if is_authority {
+		let grandpa_params = sc_consensus_grandpa::GrandpaParams {
+			config: grandpa_config,
+			link: grandpa_link,
+			network,
+			sync: Arc::new(sync_service.clone()),
+			voting_rule: sc_consensus_grandpa::VotingRulesBuilder::default().build(),
+			prometheus_registry: prometheus_registry.clone(),
+			shared_voter_state,
+			telemetry: telemetry.as_ref().map(|x| x.handle()),
+			offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool.clone()),
+			notification_service: grandpa_notification_service,
+		};
+
+		task_manager.spawn_essential_handle().spawn_blocking(
+			"grandpa-voter",
+			None,
+			sc_consensus_grandpa::run_grandpa_voter(grandpa_params)?,
+		);
+	} else {
+		// Non-validator nodes still need to participate in GRANDPA gossip for sync
+		// of justifications, so we drop the notification service handle. The protocol
+		// itself was registered via `add_notification_protocol` above.
+		drop(grandpa_notification_service);
+	}
+
+	if is_miner {
 		let proposer_factory = sc_basic_authorship::ProposerFactory::new(
 			task_manager.spawn_handle(),
 			client.clone(),
@@ -202,7 +298,7 @@ pub fn new_full<
 		let algorithm = Sha256DoubleHashAlgorithm::new(client.clone());
 
 		let pow_block_import = PowBlockImport::new(
-			client.clone(),
+			grandpa_block_import.clone(),
 			client.clone(),
 			algorithm.clone(),
 			0u32.into(),
