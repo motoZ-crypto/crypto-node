@@ -20,6 +20,10 @@ pub(crate) type FullClient = sc_service::TFullClient<
 >;
 type FullBackend = sc_service::TFullBackend<Block>;
 type FullSelectChain = LongestChain<FullBackend, Block>;
+type FullGrandpaBlockImport = sc_consensus_grandpa::GrandpaBlockImport<FullBackend, Block, FullClient, FullSelectChain>;
+
+/// The minimum period of blocks on which justifications will be imported and generated.
+const GRANDPA_JUSTIFICATION_PERIOD: u32 = 8;
 
 pub type Service = sc_service::PartialComponents<
 	FullClient,
@@ -27,7 +31,11 @@ pub type Service = sc_service::PartialComponents<
 	FullSelectChain,
 	sc_consensus::DefaultImportQueue<Block>,
 	sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
-	Option<Telemetry>,
+	(
+		FullGrandpaBlockImport,
+		sc_consensus_grandpa::LinkHalf<Block, FullClient, FullSelectChain>,
+		Option<Telemetry>,
+	),
 >;
 
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
@@ -72,8 +80,16 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 	let algorithm = Sha256DoubleHashAlgorithm::new(client.clone());
 
-	let pow_block_import = PowBlockImport::new(
+	let (grandpa_block_import, grandpa_link) = sc_consensus_grandpa::block_import(
 		client.clone(),
+		GRANDPA_JUSTIFICATION_PERIOD,
+		&client,
+		select_chain.clone(),
+		telemetry.as_ref().map(|x| x.handle()),
+	)?;
+
+	let pow_block_import = PowBlockImport::new(
+		grandpa_block_import.clone(),
 		client.clone(),
 		algorithm.clone(),
 		0u32.into(),
@@ -83,7 +99,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 	let import_queue = sc_consensus_pow::import_queue(
 		Box::new(pow_block_import),
-		None,
+		Some(Box::new(grandpa_block_import.clone())),
 		algorithm,
 		&task_manager.spawn_essential_handle(),
 		config.prometheus_registry(),
@@ -97,7 +113,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: telemetry,
+		other: (grandpa_block_import, grandpa_link, telemetry),
 	})
 }
 
@@ -116,7 +132,7 @@ pub fn new_full<
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: mut telemetry,
+		other: (grandpa_block_import, _grandpa_link, mut telemetry),
 	} = new_partial(&config)?;
 
 	let net_config = sc_network::config::FullNetworkConfiguration::<
@@ -202,7 +218,7 @@ pub fn new_full<
 		let algorithm = Sha256DoubleHashAlgorithm::new(client.clone());
 
 		let pow_block_import = PowBlockImport::new(
-			client.clone(),
+			grandpa_block_import.clone(),
 			client.clone(),
 			algorithm.clone(),
 			0u32.into(),
