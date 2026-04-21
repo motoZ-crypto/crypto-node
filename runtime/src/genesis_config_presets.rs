@@ -15,17 +15,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AccountId, BalancesConfig, DifficultyConfig, RuntimeGenesisConfig, SudoConfig, UNIT};
+use crate::{AccountId, BalancesConfig, DifficultyConfig, GrandpaConfig, RuntimeGenesisConfig, SudoConfig, UNIT};
 use alloc::{vec, vec::Vec};
 use frame_support::build_struct_json_patch;
 use serde_json::Value;
+use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::U256;
 use sp_genesis_builder::{self, PresetId};
-use sp_keyring::Sr25519Keyring;
+use sp_keyring::{Ed25519Keyring, Sr25519Keyring};
 
 fn testnet_genesis(
 	endowed_accounts: Vec<AccountId>,
 	root: AccountId,
+	initial_grandpa_authorities: Vec<(GrandpaId, u64)>,
 ) -> Value {
 	let total_supply: u128 = 1_000_000_000 * UNIT;
 	let balance_per_account = total_supply / endowed_accounts.len() as u128;
@@ -46,6 +48,10 @@ fn testnet_genesis(
 			anchor_height: 0,
 			..Default::default()
 		},
+		grandpa: GrandpaConfig {
+			authorities: initial_grandpa_authorities,
+			..Default::default()
+		},
 	})
 }
 
@@ -58,6 +64,11 @@ pub fn development_config_genesis() -> Value {
 			Sr25519Keyring::BobStash.to_account_id(),
 		],
 		Sr25519Keyring::Alice.to_account_id(),
+		vec![
+			(Ed25519Keyring::Alice.public().into(), 1),
+			(Ed25519Keyring::Bob.public().into(), 1),
+			(Ed25519Keyring::Charlie.public().into(), 1),
+		],
 	)
 }
 
@@ -68,6 +79,11 @@ pub fn local_config_genesis() -> Value {
 			.map(|v| v.to_account_id())
 			.collect::<Vec<_>>(),
 		Sr25519Keyring::Alice.to_account_id(),
+		vec![
+			(Ed25519Keyring::Alice.public().into(), 1),
+			(Ed25519Keyring::Bob.public().into(), 1),
+			(Ed25519Keyring::Charlie.public().into(), 1),
+		],
 	)
 }
 
