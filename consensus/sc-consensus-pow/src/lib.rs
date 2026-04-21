@@ -170,6 +170,68 @@ where
 	}
 }
 
+/// Check whether a candidate block conflicts with the already-finalized chain.
+///
+/// A candidate conflicts with finality when the block (if its number is less
+/// than or equal to the finalized number) or one of its ancestors at the
+/// finalized height does not match the finalized block. Such candidates must
+/// never be selected as the best chain, even when their cumulative difficulty
+/// exceeds the current best.
+///
+/// The `header_of` closure looks up a header by hash. It is expected to return
+/// `Ok(None)` only when the hash is unknown to the client.
+fn finality_conflicts<B, F>(
+	new_block_hash: B::Hash,
+	new_block_number: <<B as BlockT>::Header as HeaderT>::Number,
+	parent_hash: B::Hash,
+	finalized_hash: B::Hash,
+	finalized_number: <<B as BlockT>::Header as HeaderT>::Number,
+	mut header_of: F,
+) -> Result<bool, Error<B>>
+where
+	B: BlockT,
+	F: FnMut(B::Hash) -> Result<Option<B::Header>, sp_blockchain::Error>,
+{
+	use sp_runtime::traits::One;
+
+	// Case A: candidate is at or below the finalized height. The only valid
+	// block at each height up to `finalized_number` is the one on the finalized
+	// chain, so we walk back from `finalized_hash` to `new_block_number` and
+	// compare hashes.
+	if new_block_number <= finalized_number {
+		let mut cur_hash = finalized_hash;
+		let mut cur_number = finalized_number;
+		while cur_number > new_block_number {
+			let header = header_of(cur_hash).map_err(Error::Client)?.ok_or_else(|| {
+				Error::Other(format!(
+					"Header for hash {:?} not found while checking finality conflict",
+					cur_hash,
+				))
+			})?;
+			cur_hash = *header.parent_hash();
+			cur_number = cur_number - One::one();
+		}
+		return Ok(cur_hash != new_block_hash);
+	}
+
+	// Case B: candidate is strictly above the finalized height. Walk back from
+	// the candidate's parent until we reach the finalized height; the ancestor
+	// at that height must equal `finalized_hash`.
+	let mut cur_hash = parent_hash;
+	let mut cur_number = new_block_number - One::one();
+	while cur_number > finalized_number {
+		let header = header_of(cur_hash).map_err(Error::Client)?.ok_or_else(|| {
+			Error::Other(format!(
+				"Header for hash {:?} not found while checking finality conflict",
+				cur_hash,
+			))
+		})?;
+		cur_hash = *header.parent_hash();
+		cur_number = cur_number - One::one();
+	}
+	Ok(cur_hash != finalized_hash)
+}
+
 /// Algorithm used for proof of work.
 pub trait PowAlgorithm<B: BlockT> {
 	/// Difficulty for the algorithm.
@@ -376,7 +438,25 @@ where
 		let key = aux_key(&block.post_hash());
 		block.auxiliary.push((key, Some(aux.encode())));
 		if block.fork_choice.is_none() {
-			block.fork_choice = Some(ForkChoiceStrategy::Custom(
+			// Reject any candidate whose chain conflicts with the GRANDPA
+			// finalized chain, regardless of cumulative difficulty. This
+			// guarantees PoW fork-choice respects finality.
+			let info = self.client.info();
+			let new_block_hash = block.post_hash();
+			let new_block_number = *block.header.number();
+			let client = self.client.clone();
+			let conflicts = finality_conflicts::<B, _>(
+				new_block_hash,
+				new_block_number,
+				parent_hash,
+				info.finalized_hash,
+				info.finalized_number,
+				|hash| client.header(hash),
+			)?;
+
+			block.fork_choice = Some(ForkChoiceStrategy::Custom(if conflicts {
+				false
+			} else {
 				match aux.total_difficulty.cmp(&best_aux.total_difficulty) {
 					Ordering::Less => false,
 					Ordering::Greater => true,
@@ -386,8 +466,8 @@ where
 
 						self.algorithm.break_tie(&best_inner_seal, &inner_seal)
 					},
-				},
-			));
+				}
+			}));
 		}
 
 		self.inner.import_block(block).await.map_err(Into::into)
