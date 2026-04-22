@@ -26,6 +26,7 @@ pallet-balances.workspace = true
 pallet-difficulty.workspace = true
 pallet-grandpa.workspace = true
 pallet-reward.workspace = true
+pallet-session.workspace = true
 pallet-sudo.workspace = true
 pallet-template.workspace = true
 pallet-timestamp.workspace = true
@@ -69,6 +70,7 @@ std = [
 	"pallet-difficulty/std",
 	"pallet-grandpa/std",
 	"pallet-reward/std",
+	"pallet-session/std",
 	"pallet-sudo/std",
 	"pallet-template/std",
 	"pallet-timestamp/std",
@@ -104,6 +106,7 @@ runtime-benchmarks = [
 	"pallet-difficulty/runtime-benchmarks",
 	"pallet-grandpa/runtime-benchmarks",
 	"pallet-reward/runtime-benchmarks",
+	"pallet-session/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
 	"pallet-template/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
@@ -120,6 +123,7 @@ try-runtime = [
 	"pallet-difficulty/try-runtime",
 	"pallet-grandpa/try-runtime",
 	"pallet-reward/try-runtime",
+	"pallet-session/try-runtime",
 	"pallet-sudo/try-runtime",
 	"pallet-template/try-runtime",
 	"pallet-timestamp/try-runtime",

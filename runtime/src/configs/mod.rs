@@ -33,15 +33,16 @@ use frame_support::{
 	},
 };
 use frame_system::limits::{BlockLength, BlockWeights};
+use pallet_session::PeriodicSessions;
 use pallet_transaction_payment::{FungibleAdapter, Multiplier, TargetedFeeAdjustment};
-use sp_runtime::{FixedPointNumber, Perbill, Perquintill};
+use sp_runtime::{traits::ConvertInto, FixedPointNumber, Perbill, Perquintill};
 use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-	System, EXISTENTIAL_DEPOSIT, SLOT_DURATION, VERSION,
+	SessionKeys, System, EXISTENTIAL_DEPOSIT, SLOT_DURATION, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -185,4 +186,28 @@ impl pallet_grandpa::Config for Runtime {
 	type MaxSetIdSessionEntries = ConstU64<0>;
 	type KeyOwnerProof = sp_core::Void;
 	type EquivocationReportSystem = ();
+}
+
+parameter_types! {
+	/// Length of a session in blocks (~10 minutes at 6s block time, but our PoW
+	/// targets ~20s, so a session lasts ~10 minutes either way for genesis tests).
+	pub const SessionPeriod: BlockNumber = 30;
+	pub const SessionOffset: BlockNumber = 0;
+}
+
+impl pallet_session::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type ValidatorId = AccountId;
+	type ValidatorIdOf = ConvertInto;
+	type ShouldEndSession = PeriodicSessions<SessionPeriod, SessionOffset>;
+	type NextSessionRotation = PeriodicSessions<SessionPeriod, SessionOffset>;
+	// Hardcoded validator set comes from genesis. The session manager keeps
+	// the set unchanged until pallet-validator-staking takes over (issue #016).
+	type SessionManager = ();
+	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
+	type Keys = SessionKeys;
+	type DisablingStrategy = ();
+	type WeightInfo = pallet_session::weights::SubstrateWeight<Runtime>;
+	type Currency = Balances;
+	type KeyDeposit = ConstU128<0>;
 }

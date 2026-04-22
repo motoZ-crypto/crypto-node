@@ -10350,6 +10350,7 @@ dependencies = [
  "pallet-difficulty",
  "pallet-grandpa",
  "pallet-reward",
+ "pallet-session",
  "pallet-sudo",
  "pallet-template",
  "pallet-timestamp",
