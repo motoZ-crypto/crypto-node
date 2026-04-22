@@ -42,7 +42,7 @@ use sp_version::RuntimeVersion;
 use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-	SessionKeys, System, EXISTENTIAL_DEPOSIT, SLOT_DURATION, VERSION,
+	SessionKeys, System, EXISTENTIAL_DEPOSIT, SLOT_DURATION, UNIT, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -212,6 +212,14 @@ impl pallet_session::Config for Runtime {
 	type KeyDeposit = ConstU128<0>;
 }
 
+parameter_types! {
+	pub const ValidatorLockId: frame_support::traits::LockIdentifier = *b"validatr";
+}
+
 impl pallet_validator::Config for Runtime {
 	type Currency = Balances;
+	type MinLockAmount = ConstU128<{ 1_000 * UNIT }>;
+	type MinLockDuration = ConstU32<4_320>;
+	type LockId = ValidatorLockId;
+	type MaxValidators = ConstU32<1_000>;
 }
