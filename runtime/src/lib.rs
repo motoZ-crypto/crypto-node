@@ -229,4 +229,7 @@ mod runtime {
 
 	#[runtime::pallet_index(10)]
 	pub type Grandpa = pallet_grandpa;
+
+	#[runtime::pallet_index(11)]
+	pub type Session = pallet_session;
 }
