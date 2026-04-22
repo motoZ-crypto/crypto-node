@@ -211,3 +211,7 @@ impl pallet_session::Config for Runtime {
 	type Currency = Balances;
 	type KeyDeposit = ConstU128<0>;
 }
+
+impl pallet_validator::Config for Runtime {
+	type Currency = Balances;
+}
