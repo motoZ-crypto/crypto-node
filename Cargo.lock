@@ -10381,6 +10381,7 @@ dependencies = [
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
+ "pallet-authorship",
  "pallet-balances",
  "pallet-difficulty",
  "pallet-grandpa",

@@ -176,14 +176,60 @@ impl pallet_difficulty::Config for Runtime {
 	type Halflife = DifficultyHalflife;
 }
 
+parameter_types! {
+	/// Maximum number of blocks a GRANDPA equivocation report transaction is
+	/// considered valid for inclusion before expiring from the pool.
+	pub const GrandpaReportLongevity: u64 = 25;
+}
+
 impl pallet_grandpa::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = ();
 	type MaxAuthorities = ConstU32<1000>;
 	type MaxNominators = ConstU32<0>;
-	type MaxSetIdSessionEntries = ConstU64<0>;
-	type KeyOwnerProof = sp_core::Void;
-	type EquivocationReportSystem = ();
+	type MaxSetIdSessionEntries = ConstU64<168>;
+	type KeyOwnerProof = sp_session::MembershipProof;
+	type EquivocationReportSystem = pallet_grandpa::EquivocationReportSystem<
+		Self,
+		GrandpaOffenceReporter,
+		pallet_session::historical::Pallet<Runtime>,
+		GrandpaReportLongevity,
+	>;
+}
+
+/// Block-author finder for `pallet-authorship`.
+///
+/// PoW does not have a first-class authority, so we do not attribute block
+/// authorship for reward or reporter purposes here. The value is only consumed
+/// by the GRANDPA equivocation report pipeline as a fallback reporter when an
+/// offchain worker submits a report; leaving it `None` means the report carries
+/// no reporter, which is fine because our reporting adapter ignores reporters.
+pub struct PowFindAuthor;
+
+impl frame_support::traits::FindAuthor<AccountId> for PowFindAuthor {
+	fn find_author<'a, I>(_digests: I) -> Option<AccountId>
+	where
+		I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
+	{
+		None
+	}
+}
+
+impl pallet_authorship::Config for Runtime {
+	type FindAuthor = PowFindAuthor;
+	type EventHandler = ();
+}
+
+/// `pallet-session/historical` configuration.
+///
+/// Full identification is unit because this chain does not maintain exposures
+/// or nominator stakes. The historical trie is required to validate GRANDPA
+/// equivocation key-ownership proofs against the session in which the offence
+/// occurred.
+impl pallet_session::historical::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type FullIdentification = ();
+	type FullIdentificationOf = UnitIdentification;
 }
 
 parameter_types! {
@@ -199,7 +245,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = ConvertInto;
 	type ShouldEndSession = PeriodicSessions<SessionPeriod, SessionOffset>;
 	type NextSessionRotation = PeriodicSessions<SessionPeriod, SessionOffset>;
-	type SessionManager = Validator;
+	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Runtime, Validator>;
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
 	type DisablingStrategy = ();
@@ -284,6 +330,41 @@ where
 	) -> Result<(), sp_staking::offence::OffenceError> {
 		for (offender, _) in offence.offenders() {
 			pallet_validator::Pallet::<Runtime>::note_offline(&offender);
+		}
+		Ok(())
+	}
+
+	fn is_known_offence(_offenders: &[(AccountId, ())], _time_slot: &O::TimeSlot) -> bool {
+		false
+	}
+}
+
+/// Offence reporter that forwards GRANDPA equivocation reports into
+/// `pallet-validator`.
+///
+/// The `pallet-grandpa` built-in [`pallet_grandpa::EquivocationReportSystem`]
+/// expects a [`ReportOffence`] implementation keyed by the
+/// `IdentificationTuple` produced by `pallet-session/historical`, which in
+/// this runtime is `(AccountId, ())`. Upon receiving a verified offence we
+/// call [`pallet_validator::Pallet::note_equivocation`] for the offender,
+/// which switches the validator's lock to `Kicked`, records the rejoin
+/// cooldown deadline, and emits the `ValidatorKicked { Equivocation }`
+/// event. The next session boundary removes the validator from the active
+/// set via the existing session manager logic.
+pub struct GrandpaOffenceReporter;
+
+impl<O>
+	sp_staking::offence::ReportOffence<AccountId, (AccountId, ()), O>
+	for GrandpaOffenceReporter
+where
+	O: sp_staking::offence::Offence<(AccountId, ())>,
+{
+	fn report_offence(
+		_reporters: alloc::vec::Vec<AccountId>,
+		offence: O,
+	) -> Result<(), sp_staking::offence::OffenceError> {
+		for (offender, _) in offence.offenders() {
+			pallet_validator::Pallet::<Runtime>::note_equivocation(&offender);
 		}
 		Ok(())
 	}

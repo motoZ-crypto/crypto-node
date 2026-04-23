@@ -225,6 +225,12 @@ mod runtime {
 
 	#[runtime::pallet_index(13)]
 	pub type ImOnline = pallet_im_online;
+
+	#[runtime::pallet_index(14)]
+	pub type Authorship = pallet_authorship;
+
+	#[runtime::pallet_index(15)]
+	pub type Historical = pallet_session::historical;
 }
 
 // pallet-im-online submits unsigned heartbeat extrinsics from offchain
