@@ -344,7 +344,7 @@ impl<T: Config> Pallet<T> {
     /// Intended to be invoked by the runtime adapter that bridges
     /// `pallet-im-online`'s `ReportUnresponsiveness` into this pallet.
     /// Repeated calls within the same session are idempotent.
-    pub fn note_offline(who: T::AccountId) {
+    pub fn note_offline(who: &T::AccountId) {
         if !ValidatorLocks::<T>::contains_key(&who) {
             return;
         }

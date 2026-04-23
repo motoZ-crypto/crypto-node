@@ -270,12 +270,35 @@ parameter_types! {
 	pub const ImOnlineMaxPeerInHeartbeats: u32 = 10_000;
 }
 
+pub struct ImOnlineOffenceReporter;
+
+impl<O>
+	sp_staking::offence::ReportOffence<AccountId, (AccountId, ()), O>
+	for ImOnlineOffenceReporter
+where
+	O: sp_staking::offence::Offence<(AccountId, ())>,
+{
+	fn report_offence(
+		_reporters: alloc::vec::Vec<AccountId>,
+		offence: O,
+	) -> Result<(), sp_staking::offence::OffenceError> {
+		for (offender, _) in offence.offenders() {
+			pallet_validator::Pallet::<Runtime>::note_offline(&offender);
+		}
+		Ok(())
+	}
+
+	fn is_known_offence(_offenders: &[(AccountId, ())], _time_slot: &O::TimeSlot) -> bool {
+		false
+	}
+}
+
 impl pallet_im_online::Config for Runtime {
 	type AuthorityId = pallet_im_online::sr25519::AuthorityId;
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorSet = ValidatorIdentification;
 	type NextSessionRotation = PeriodicSessions<SessionPeriod, SessionOffset>;
-	type ReportUnresponsiveness = ();
+	type ReportUnresponsiveness = ImOnlineOffenceReporter;
 	type UnsignedPriority = ImOnlineUnsignedPriority;
 	type MaxKeys = ImOnlineMaxKeys;
 	type MaxPeerInHeartbeats = ImOnlineMaxPeerInHeartbeats;
