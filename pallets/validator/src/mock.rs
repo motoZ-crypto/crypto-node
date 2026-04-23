@@ -68,10 +68,11 @@ parameter_types! {
 
 impl pallet_validator::Config for Test {
 	type Currency = Balances;
-	type MinLockAmount = ConstU128<1_000>;
-	type MinLockDuration = ConstU64<10>;
+	type LockAmount = ConstU128<1_000>;
+	type LockDuration = ConstU64<10>;
 	type LockId = TestLockId;
 	type MaxValidators = ConstU32<3>;
+	type RenewInterval = ConstU64<5>;
 }
 
 pub const ALICE: AccountId = 1;

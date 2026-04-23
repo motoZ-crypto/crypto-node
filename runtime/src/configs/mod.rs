@@ -40,7 +40,7 @@ use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
+	AccountId, Balance, Balances, Block, BlockNumber, DAYS, Hash, Nonce, PalletInfo, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
 	SessionKeys, System, EXISTENTIAL_DEPOSIT, UNIT, VERSION,
 };
@@ -199,8 +199,6 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = ConvertInto;
 	type ShouldEndSession = PeriodicSessions<SessionPeriod, SessionOffset>;
 	type NextSessionRotation = PeriodicSessions<SessionPeriod, SessionOffset>;
-	// Hardcoded validator set comes from genesis. The session manager keeps
-	// the set unchanged until pallet-validator-staking takes over (issue #016).
 	type SessionManager = ();
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
@@ -216,8 +214,9 @@ parameter_types! {
 
 impl pallet_validator::Config for Runtime {
 	type Currency = Balances;
-	type MinLockAmount = ConstU128<{ 1_000 * UNIT }>;
-	type MinLockDuration = ConstU32<4_320>;
+	type LockAmount = ConstU128<{ 1_000 * UNIT }>;
+	type LockDuration = ConstU32<{ 180 * DAYS }>;
 	type LockId = ValidatorLockId;
 	type MaxValidators = ConstU32<1_000>;
+	type RenewInterval = ConstU32<{ 1 * DAYS }>;
 }
