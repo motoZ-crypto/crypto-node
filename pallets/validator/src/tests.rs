@@ -521,3 +521,119 @@ fn lock_blocked_during_cooldown_then_succeeds() {
         assert_eq!(lock.status, ValidatorStatus::Active);
     });
 }
+
+#[test]
+fn note_equivocation_ignores_non_validator() {
+    new_test_ext().execute_with(|| {
+        Validator::note_equivocation(&ALICE);
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
+    });
+}
+
+#[test]
+fn note_equivocation_kicks_active_validator() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        // Clear the lock-event so the equivocation event is the last one.
+        System::reset_events();
+
+        Validator::note_equivocation(&ALICE);
+
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
+        assert_eq!(lock.status, ValidatorStatus::Kicked);
+        // Lock amount and expiry are unchanged so funds unlock at the original block.
+        assert_eq!(lock.amount, 1_000);
+        assert_eq!(lock.expiry_block, 11);
+
+        let cooldown = RejoinCooldown::<Test>::get(ALICE).expect("cooldown recorded");
+        assert_eq!(cooldown, System::block_number() + 20);
+
+        System::assert_last_event(
+            Event::ValidatorKicked { who: ALICE, reason: KickReason::Equivocation }.into(),
+        );
+    });
+}
+
+#[test]
+fn note_equivocation_is_idempotent() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        Validator::note_equivocation(&ALICE);
+        let cooldown_first = RejoinCooldown::<Test>::get(ALICE).expect("cooldown recorded");
+
+        // Advance a block and report again: the cooldown deadline must not move.
+        System::set_block_number(System::block_number() + 5);
+        Validator::note_equivocation(&ALICE);
+
+        assert_eq!(RejoinCooldown::<Test>::get(ALICE), Some(cooldown_first));
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
+        assert_eq!(lock.status, ValidatorStatus::Kicked);
+    });
+}
+
+#[test]
+fn equivocation_kick_stops_auto_renewal() {
+    new_test_ext().execute_with(|| {
+        // Lock at block 1 -> expiry 11; renewal window starts at block 6.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        Validator::note_equivocation(&ALICE);
+
+        run_to_block(8);
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
+        assert_eq!(lock.expiry_block, 11);
+        assert_eq!(lock.status, ValidatorStatus::Kicked);
+    });
+}
+
+#[test]
+fn equivocation_lock_released_at_original_expiry() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        Validator::note_equivocation(&ALICE);
+
+        run_to_block(11);
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+        // Cooldown deadline survives lock release.
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_some());
+    });
+}
+
+#[test]
+fn equivocation_removes_from_active_set_next_session() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        let _ = rotate_session(1);
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
+
+        Validator::note_equivocation(&ALICE);
+
+        let set = rotate_session(2).expect("set must shrink");
+        assert_eq!(set, vec![BOB]);
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![BOB]);
+    });
+}
+
+#[test]
+fn equivocation_blocks_relock_during_cooldown() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        Validator::note_equivocation(&ALICE);
+
+        // Let the original lock expire to free the account for a relock attempt.
+        run_to_block(11);
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+
+        let cooldown_until = RejoinCooldown::<Test>::get(ALICE).expect("cooldown set");
+        assert!(cooldown_until > System::block_number());
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::InCooldown,
+        );
+
+        System::set_block_number(cooldown_until.saturating_add(1));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
+    });
+}
