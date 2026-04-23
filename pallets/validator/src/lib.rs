@@ -355,6 +355,52 @@ impl<T: Config> Pallet<T> {
         );
     }
 
+    /// Mark `who` as kicked due to GRANDPA equivocation.
+    ///
+    /// Idempotent: a non-validator or an already kicked/cooldown account is
+    /// silently ignored. The currency lock is left in place so that funds
+    /// unlock at the original `expiry_block`; auto-renewal stops because the
+    /// status leaves [`ValidatorStatus::Active`]. The account is removed from
+    /// the active set at the next session boundary by `new_session`.
+    pub fn note_equivocation(who: &T::AccountId) {
+        let mut existed = false;
+        ValidatorLocks::<T>::mutate(who, |maybe_info| {
+            if let Some(info) = maybe_info {
+                existed = true;
+                if info.status == ValidatorStatus::Kicked
+                    || info.status == ValidatorStatus::Cooldown
+                {
+                    existed = false;
+                    return;
+                }
+                info.status = ValidatorStatus::Kicked;
+            }
+        });
+        if !existed {
+            log::debug!(
+                target: LOG_TARGET,
+                "equivocation report ignored: account is not an active validator",
+            );
+            return;
+        }
+
+        let now = frame_system::Pallet::<T>::block_number();
+        let cooldown = T::RejoinCooldownPeriod::get();
+        RejoinCooldown::<T>::insert(who, now.saturating_add(cooldown));
+
+        OfflineSessionCount::<T>::remove(who);
+        OfflineThisSession::<T>::remove(who);
+
+        Self::deposit_event(Event::ValidatorKicked {
+            who: who.clone(),
+            reason: KickReason::Equivocation,
+        });
+        log::info!(
+            target: LOG_TARGET,
+            "validator kicked due to GRANDPA equivocation",
+        );
+    }
+
     /// Update offline counters for the current active set and kick any
     /// validator that has reached `OfflineThreshold` consecutive offline
     /// sessions. Called at every session boundary before the active set is
