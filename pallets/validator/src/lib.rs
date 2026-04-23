@@ -167,15 +167,19 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_initialize(now: BlockNumberFor<T>) -> Weight {
-			let interval = T::RenewInterval::get();
-			if interval.is_zero() {
-				return Weight::from_parts(0, 0);
-			}
-
 			let duration = T::LockDuration::get();
+			let interval = T::RenewInterval::get();
+
+			// First pass: collect expired locks and (when enabled) renewal candidates.
+			let mut to_release: alloc::vec::Vec<(T::AccountId, BalanceOf<T>)> =
+				alloc::vec::Vec::new();
 			let mut to_renew: alloc::vec::Vec<T::AccountId> = alloc::vec::Vec::new();
 			for (who, info) in ValidatorLocks::<T>::iter() {
-				if info.status != ValidatorStatus::Active {
+				if info.expiry_block <= now {
+					to_release.push((who, info.amount));
+					continue;
+				}
+				if interval.is_zero() || info.status != ValidatorStatus::Active {
 					continue;
 				}
 				let remaining = info.expiry_block.saturating_sub(now);
@@ -185,7 +189,16 @@ pub mod pallet {
 				}
 			}
 
-			let count = to_renew.len() as u64;
+			// Release expired locks: drop the currency lock, clear storage, emit event.
+			let release_count = to_release.len() as u64;
+			for (who, amount) in to_release {
+				T::Currency::remove_lock(T::LockId::get(), &who);
+				ValidatorLocks::<T>::remove(&who);
+				Self::deposit_event(Event::LockReleased { who, amount });
+			}
+
+			// Renew Active locks whose elapsed window has reached the configured interval.
+			let renew_count = to_renew.len() as u64;
 			for who in to_renew {
 				ValidatorLocks::<T>::mutate(&who, |maybe_info| {
 					if let Some(info) = maybe_info {
@@ -199,7 +212,8 @@ pub mod pallet {
 				});
 			}
 
-			// Rough weight: one read per lock scanned + one write per renewal.
+			// Rough weight: one read per scanned lock + one write per mutation.
+			let count = release_count.saturating_add(renew_count);
 			T::DbWeight::get().reads_writes(count, count)
 		}
 	}
