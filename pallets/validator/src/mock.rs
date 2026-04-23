@@ -73,6 +73,8 @@ impl pallet_validator::Config for Test {
 	type LockId = TestLockId;
 	type MaxValidators = ConstU32<3>;
 	type RenewInterval = ConstU64<5>;
+	type OfflineThreshold = ConstU32<3>;
+	type RejoinCooldownPeriod = ConstU64<20>;
 }
 
 pub const ALICE: AccountId = 1;

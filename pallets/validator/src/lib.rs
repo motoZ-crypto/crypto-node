@@ -17,7 +17,7 @@ extern crate alloc;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{
-    traits::{Currency, LockableCurrency},
+    traits::{Currency, Get, LockableCurrency},
     BoundedVec,
 };
 use scale_info::TypeInfo;
@@ -86,6 +86,15 @@ pub mod pallet {
         /// Interval (in blocks) between auto-renewal sweeps.
         #[pallet::constant]
         type RenewInterval: Get<BlockNumberFor<Self>>;
+
+        /// Number of consecutive offline sessions that triggers an offline kick.
+        #[pallet::constant]
+        type OfflineThreshold: Get<u32>;
+
+        /// Cooldown period (in blocks) applied to a kicked validator before they
+        /// are allowed to call `lock()` again.
+        #[pallet::constant]
+        type RejoinCooldownPeriod: Get<BlockNumberFor<Self>>;
     }
 
     /// Active validator lock records, keyed by account.
@@ -113,6 +122,11 @@ pub mod pallet {
     /// Consecutive offline session count per account.
     #[pallet::storage]
 	pub type OfflineSessionCount<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
+
+    /// Accounts reported as offline during the current session. Cleared when
+    /// the next session boundary is processed.
+    #[pallet::storage]
+	pub type OfflineThisSession<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -321,6 +335,81 @@ pub mod pallet {
     }
 }
 
+/// Log target for liveness-related diagnostics.
+const LOG_TARGET: &str = "runtime::validator";
+
+impl<T: Config> Pallet<T> {
+    /// Record `who` as offline for the current session.
+    ///
+    /// Intended to be invoked by the runtime adapter that bridges
+    /// `pallet-im-online`'s `ReportUnresponsiveness` into this pallet.
+    /// Repeated calls within the same session are idempotent.
+    pub fn note_offline(who: &T::AccountId) {
+        if !ValidatorLocks::<T>::contains_key(&who) {
+            return;
+        }
+        OfflineThisSession::<T>::insert(&who, ());
+        log::debug!(
+            target: LOG_TARGET,
+            "validator reported offline for current session",
+        );
+    }
+
+    /// Update offline counters for the current active set and kick any
+    /// validator that has reached `OfflineThreshold` consecutive offline
+    /// sessions. Called at every session boundary before the active set is
+    /// recomputed.
+    fn process_offline_counters() {
+        let threshold = T::OfflineThreshold::get();
+        let cooldown = T::RejoinCooldownPeriod::get();
+        let now = frame_system::Pallet::<T>::block_number();
+        let active = ActiveValidators::<T>::get();
+
+        for who in active.iter() {
+            let was_offline = OfflineThisSession::<T>::take(who).is_some();
+            if !was_offline {
+                if OfflineSessionCount::<T>::contains_key(who) {
+                    OfflineSessionCount::<T>::remove(who);
+                }
+                continue;
+            }
+
+            let count = OfflineSessionCount::<T>::get(who).saturating_add(1);
+            if count < threshold {
+                OfflineSessionCount::<T>::insert(who, count);
+                log::debug!(
+                    target: LOG_TARGET,
+                    "offline counter incremented to {} (threshold {})",
+                    count,
+                    threshold,
+                );
+                continue;
+            }
+
+            // Threshold reached: kick.
+            OfflineSessionCount::<T>::remove(who);
+            ValidatorLocks::<T>::mutate(who, |maybe_info| {
+                if let Some(info) = maybe_info {
+                    info.status = ValidatorStatus::Kicked;
+                }
+            });
+            RejoinCooldown::<T>::insert(who, now.saturating_add(cooldown));
+            Self::deposit_event(Event::ValidatorKicked {
+                who: who.clone(),
+                reason: KickReason::Offline,
+            });
+            log::info!(
+                target: LOG_TARGET,
+                "validator kicked after {} consecutive offline sessions",
+                threshold,
+            );
+        }
+
+        // Drop any leftover entries (offenders that are not in the active set).
+        let _ = OfflineThisSession::<T>::clear(u32::MAX, None);
+    }
+}
+
 /// Drives `pallet-session` from the validator lifecycle storage.
 ///
 /// At every new session, the active set is recomputed as:
@@ -332,6 +421,8 @@ pub mod pallet {
 /// active set, matching the `pallet-session` convention.
 impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
     fn new_session(_new_index: u32) -> Option<alloc::vec::Vec<T::AccountId>> {
+        Self::process_offline_counters();
+
         let previous = ActiveValidators::<T>::get();
 
         let is_active = |who: &T::AccountId| {

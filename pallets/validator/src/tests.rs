@@ -1,6 +1,6 @@
 use crate::{
-    mock::*, ActiveValidators, Error, Event, LockInfo, PendingValidators, RejoinCooldown,
-    ValidatorLocks, ValidatorStatus,
+    mock::*, ActiveValidators, Error, Event, KickReason, LockInfo, OfflineSessionCount,
+    OfflineThisSession, PendingValidators, RejoinCooldown, ValidatorLocks, ValidatorStatus,
 };
 use frame_support::{assert_noop, assert_ok, traits::Hooks};
 use pallet_session::SessionManager;
@@ -386,5 +386,138 @@ fn new_session_drops_validator_with_released_lock() {
             .expect("set must shrink to empty");
         assert!(set.is_empty());
         assert!(ActiveValidators::<Test>::get().is_empty());
+    });
+}
+
+/// Helper: mark `who` as offline for the current session window.
+fn report_offline(who: AccountId) {
+    Validator::note_offline(&who);
+}
+
+/// Helper: advance to the next session boundary by invoking `new_session`.
+fn rotate_session(index: u32) -> Option<alloc::vec::Vec<AccountId>> {
+    <Validator as SessionManager<AccountId>>::new_session(index)
+}
+
+#[test]
+fn note_offline_ignores_non_validator() {
+    new_test_ext().execute_with(|| {
+        Validator::note_offline(&ALICE);
+        assert!(OfflineThisSession::<Test>::get(ALICE).is_none());
+    });
+}
+
+#[test]
+fn consecutive_offline_kicks_validator() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        let _ = rotate_session(1);
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
+
+        // ALICE misses three consecutive sessions while BOB stays online.
+        for idx in 2..=4u32 {
+            report_offline(ALICE);
+            let _ = rotate_session(idx);
+        }
+
+        let alice_lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
+        assert_eq!(alice_lock.status, ValidatorStatus::Kicked);
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_some());
+        assert_eq!(OfflineSessionCount::<Test>::get(ALICE), 0);
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![BOB]);
+        // The transient set must be empty after processing.
+        assert!(OfflineThisSession::<Test>::iter().next().is_none());
+        // Event emitted with `Offline` reason.
+        let kicked = System::events().into_iter().any(|e| matches!(
+            e.event,
+            RuntimeEvent::Validator(Event::ValidatorKicked { who: ALICE, reason: KickReason::Offline })
+        ));
+        assert!(kicked, "ValidatorKicked event with Offline reason expected");
+    });
+}
+
+#[test]
+fn intermittent_heartbeat_resets_counter() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        let _ = rotate_session(1);
+
+        // Two offline sessions: counter reaches 2, still below threshold (3).
+        report_offline(ALICE);
+        let _ = rotate_session(2);
+        report_offline(ALICE);
+        let _ = rotate_session(3);
+        assert_eq!(OfflineSessionCount::<Test>::get(ALICE), 2);
+
+        // Heartbeat received this session: counter resets.
+        let _ = rotate_session(4);
+        assert_eq!(OfflineSessionCount::<Test>::get(ALICE), 0);
+
+        // Two more offline sessions: only counter == 2 again, still no kick.
+        report_offline(ALICE);
+        let _ = rotate_session(5);
+        report_offline(ALICE);
+        let _ = rotate_session(6);
+        assert_eq!(OfflineSessionCount::<Test>::get(ALICE), 2);
+
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
+        assert_eq!(lock.status, ValidatorStatus::Active);
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
+    });
+}
+
+#[test]
+fn kicked_validator_skips_auto_renewal() {
+    new_test_ext().execute_with(|| {
+        // Lock at block 1, expiry = 11. Renewal would extend at block 6.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        let _ = rotate_session(1);
+
+        // Drive ALICE offline for three sessions to trigger a kick.
+        for idx in 2..=4u32 {
+            report_offline(ALICE);
+            let _ = rotate_session(idx);
+        }
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
+        assert_eq!(lock.status, ValidatorStatus::Kicked);
+        assert_eq!(lock.expiry_block, 11);
+
+        // Past the next renewal window: status is no longer Active so no extension.
+        run_to_block(8);
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
+        assert_eq!(lock.expiry_block, 11);
+    });
+}
+
+#[test]
+fn lock_blocked_during_cooldown_then_succeeds() {
+    new_test_ext().execute_with(|| {
+        // Lock and kick ALICE.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        let _ = rotate_session(1);
+        for idx in 2..=4u32 {
+            report_offline(ALICE);
+            let _ = rotate_session(idx);
+        }
+
+        // Let the original lock expire so the account is free to relock.
+        run_to_block(11);
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+
+        // Cooldown still active: lock() must reject.
+        let cooldown_until = RejoinCooldown::<Test>::get(ALICE).expect("cooldown set");
+        assert!(cooldown_until > System::block_number());
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::InCooldown,
+        );
+
+        // Move past cooldown deadline; lock() now succeeds and the record is cleared.
+        System::set_block_number(cooldown_until.saturating_add(1));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("relock recorded");
+        assert_eq!(lock.status, ValidatorStatus::Active);
     });
 }
