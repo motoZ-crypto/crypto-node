@@ -176,14 +176,25 @@ impl pallet_difficulty::Config for Runtime {
 	type Halflife = DifficultyHalflife;
 }
 
+parameter_types! {
+	/// Maximum number of blocks a GRANDPA equivocation report transaction is
+	/// considered valid for inclusion before expiring from the pool.
+	pub const GrandpaReportLongevity: u64 = 25;
+}
+
 impl pallet_grandpa::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = ();
 	type MaxAuthorities = ConstU32<1000>;
 	type MaxNominators = ConstU32<0>;
-	type MaxSetIdSessionEntries = ConstU64<0>;
-	type KeyOwnerProof = sp_core::Void;
-	type EquivocationReportSystem = ();
+	type MaxSetIdSessionEntries = ConstU64<168>;
+	type KeyOwnerProof = sp_session::MembershipProof;
+	type EquivocationReportSystem = pallet_grandpa::EquivocationReportSystem<
+		Self,
+		GrandpaOffenceReporter,
+		pallet_session::historical::Pallet<Runtime>,
+		GrandpaReportLongevity,
+	>;
 }
 
 /// Block-author finder for `pallet-authorship`.

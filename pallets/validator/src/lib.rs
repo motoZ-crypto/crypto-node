@@ -391,6 +391,14 @@ impl<T: Config> Pallet<T> {
         OfflineSessionCount::<T>::remove(who);
         OfflineThisSession::<T>::remove(who);
 
+        // Drop from the pending queue so the account is not promoted at the
+        // next session boundary if it had not yet been activated.
+        PendingValidators::<T>::mutate(|queue| {
+            if let Some(pos) = queue.iter().position(|a| a == who) {
+                queue.remove(pos);
+            }
+        });
+
         Self::deposit_event(Event::ValidatorKicked {
             who: who.clone(),
             reason: KickReason::Equivocation,
