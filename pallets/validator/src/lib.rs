@@ -8,13 +8,18 @@
 
 pub use pallet::*;
 
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;
+
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_support::traits::Currency;
+use frame_support::traits::{Currency, LockableCurrency};
 use scale_info::TypeInfo;
+use sp_runtime::traits::Saturating;
 
 /// Balance type alias derived from the configured `Currency`.
-pub type BalanceOf<T> =
-	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+pub type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId,>>::Balance;
 
 /// Lifecycle state of a validator's stake.
 #[derive(
@@ -36,22 +41,18 @@ pub enum ValidatorStatus {
 	Clone, PartialEq, Eq, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
 )]
 pub struct LockInfo<Balance, BlockNumber> {
-	/// Locked amount.
 	pub amount: Balance,
-	/// Block at which the lock was created.
 	pub lock_block: BlockNumber,
-	/// Block at which the lock expires (subject to auto-renewal).
 	pub expiry_block: BlockNumber,
-	/// Whether the lock auto-renews while `Active`.
-	pub auto_renew: bool,
-	/// Current lifecycle status.
-	pub status: ValidatorStatus,
 }
 
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use frame_support::pallet_prelude::*;
+	use frame_support::{
+		pallet_prelude::*,
+		traits::{LockIdentifier, WithdrawReasons},
+	};
 	use frame_system::pallet_prelude::*;
 
 	#[pallet::pallet]
@@ -60,7 +61,23 @@ pub mod pallet {
 	#[pallet::config]
 	pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
 		/// Currency used for validator stake locking.
-		type Currency: Currency<Self::AccountId>;
+		type Currency: LockableCurrency<Self::AccountId, Moment = BlockNumberFor<Self>>;
+
+		/// Minimum amount that must be locked to register as a validator.
+		#[pallet::constant]
+		type MinLockAmount: Get<BalanceOf<Self>>;
+
+		/// Minimum lock duration (in blocks) required at registration time.
+		#[pallet::constant]
+		type MinLockDuration: Get<BlockNumberFor<Self>>;
+
+		/// Lock identifier used when calling `set_lock` on the underlying currency.
+		#[pallet::constant]
+		type LockId: Get<LockIdentifier>;
+
+		/// Upper bound for the number of pending/active validators tracked in storage.
+		#[pallet::constant]
+		type MaxValidators: Get<u32>;
 	}
 
 	/// Active validator lock records, keyed by account.
@@ -73,19 +90,20 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
-	/// Equivocation cooldown deadline per account (block number).
+	/// Validators waiting to be promoted into the active set at the next session boundary.
 	#[pallet::storage]
-	pub type EquivocationCooldown<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, BlockNumberFor<T>, OptionQuery>;
+	pub type PendingValidators<T: Config> =
+		StorageValue<_, BoundedVec<T::AccountId, T::MaxValidators>, ValueQuery>;
+
+	/// Rejoin cooldown deadline per account (block number).
+	#[pallet::storage]
+	pub type RejoinCooldown<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, BlockNumberFor<T>, OptionQuery>;
 
 	/// Consecutive offline session count per account.
 	#[pallet::storage]
 	pub type OfflineSessionCount<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
 
 	#[pallet::event]
-	// `deposit_event` is unused until dispatchables/hooks land in follow-up
-	// issues (#012b onwards); declare it now so callers don't need to be
-	// retro-fitted later.
-	#[allow(dead_code)]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// A validator locked stake. `[who, amount, expiry_block]`
@@ -130,18 +148,79 @@ pub mod pallet {
 		AlreadyValidator,
 		/// Account is not a registered validator.
 		NotValidator,
-		/// Provided stake amount is below the minimum threshold.
-		InsufficientStake,
-		/// Provided lock duration is below the minimum.
-		LockDurationTooShort,
 		/// Operation not permitted in the current validator status.
 		InvalidStatus,
 		/// Lock has not yet reached its expiry block.
 		LockNotExpired,
 		/// Account is currently within an equivocation cooldown.
 		InCooldown,
+		/// Account does not have enough free balance to cover the configured lock.
+		InsufficientBalance,
+		/// The pending validator queue is full.
+		TooManyValidators,
 	}
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {}
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T> {
+		/// Lock the configured stake amount for the configured duration and
+		/// queue the caller into [`PendingValidators`] for the next session.
+		///
+		/// The locked amount and duration are taken from `Config::MinLockAmount`
+		/// and `Config::MinLockDuration` respectively; callers do not choose them.
+		#[pallet::call_index(0)]
+		#[pallet::weight(Weight::from_parts(50_000_000, 0))]
+		pub fn lock(origin: OriginFor<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			ensure!(!ValidatorLocks::<T>::contains_key(&who), Error::<T>::AlreadyValidator);
+
+			let now = frame_system::Pallet::<T>::block_number();
+			if let Some(deadline) = RejoinCooldown::<T>::get(&who) {
+				if deadline > now {
+					return Err(Error::<T>::InCooldown.into());
+				}
+				RejoinCooldown::<T>::remove(&who);
+			}
+
+			let amount = T::MinLockAmount::get();
+			let duration = T::MinLockDuration::get();
+
+			ensure!(
+				T::Currency::free_balance(&who) >= amount,
+				Error::<T>::InsufficientBalance,
+			);
+
+			let expiry_block = now.saturating_add(duration);
+
+			PendingValidators::<T>::try_mutate(|queue| -> DispatchResult {
+				ensure!(!queue.iter().any(|a| a == &who), Error::<T>::AlreadyValidator);
+				queue
+					.try_push(who.clone())
+					.map_err(|_| Error::<T>::TooManyValidators)?;
+				Ok(())
+			})?;
+
+			T::Currency::set_lock(
+				T::LockId::get(),
+				&who,
+				amount,
+				WithdrawReasons::all(),
+			);
+
+			ValidatorLocks::<T>::insert(
+				&who,
+				LockInfo {
+					amount,
+					lock_block: now,
+					expiry_block
+				},
+			);
+
+			Self::deposit_event(Event::ValidatorLocked { who, amount, expiry_block });
+			Ok(())
+		}
+	}
 }
