@@ -13,6 +13,7 @@ publish = false
 codec = { features = ["derive"], workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
+log.workspace = true
 pallet-balances.workspace = true
 pallet-session.workspace = true
 scale-info = { features = ["derive"], workspace = true }
