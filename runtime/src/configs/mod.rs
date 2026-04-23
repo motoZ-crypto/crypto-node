@@ -186,6 +186,41 @@ impl pallet_grandpa::Config for Runtime {
 	type EquivocationReportSystem = ();
 }
 
+/// Block-author finder for `pallet-authorship`.
+///
+/// PoW does not have a first-class authority, so we do not attribute block
+/// authorship for reward or reporter purposes here. The value is only consumed
+/// by the GRANDPA equivocation report pipeline as a fallback reporter when an
+/// offchain worker submits a report; leaving it `None` means the report carries
+/// no reporter, which is fine because our reporting adapter ignores reporters.
+pub struct PowFindAuthor;
+
+impl frame_support::traits::FindAuthor<AccountId> for PowFindAuthor {
+	fn find_author<'a, I>(_digests: I) -> Option<AccountId>
+	where
+		I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
+	{
+		None
+	}
+}
+
+impl pallet_authorship::Config for Runtime {
+	type FindAuthor = PowFindAuthor;
+	type EventHandler = ();
+}
+
+/// `pallet-session/historical` configuration.
+///
+/// Full identification is unit because this chain does not maintain exposures
+/// or nominator stakes. The historical trie is required to validate GRANDPA
+/// equivocation key-ownership proofs against the session in which the offence
+/// occurred.
+impl pallet_session::historical::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type FullIdentification = ();
+	type FullIdentificationOf = UnitIdentification;
+}
+
 parameter_types! {
 	/// Length of a session in blocks (~10 minutes at 6s block time, but our PoW
 	/// targets ~20s, so a session lasts ~10 minutes either way for genesis tests).
@@ -199,7 +234,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = ConvertInto;
 	type ShouldEndSession = PeriodicSessions<SessionPeriod, SessionOffset>;
 	type NextSessionRotation = PeriodicSessions<SessionPeriod, SessionOffset>;
-	type SessionManager = Validator;
+	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Runtime, Validator>;
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
 	type DisablingStrategy = ();

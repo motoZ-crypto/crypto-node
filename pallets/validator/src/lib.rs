@@ -508,3 +508,22 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
     fn start_session(_start_index: u32) {}
 }
 
+/// `pallet-session/historical` specialization. We do not maintain a separate
+/// full-identification for validators (no nominator/exposure data), so the
+/// identification is `()`. The new-session set is the same one produced by
+/// the base `SessionManager`, zipped with unit identifications.
+impl<T: Config> pallet_session::historical::SessionManager<T::AccountId, ()> for Pallet<T> {
+    fn new_session(new_index: u32) -> Option<alloc::vec::Vec<(T::AccountId, ())>> {
+        <Self as pallet_session::SessionManager<T::AccountId>>::new_session(new_index)
+            .map(|v| v.into_iter().map(|id| (id, ())).collect())
+    }
+
+    fn start_session(start_index: u32) {
+        <Self as pallet_session::SessionManager<T::AccountId>>::start_session(start_index);
+    }
+
+    fn end_session(end_index: u32) {
+        <Self as pallet_session::SessionManager<T::AccountId>>::end_session(end_index);
+    }
+}
+
