@@ -1,305 +1,390 @@
 use crate::{
-	mock::*, Error, Event, LockInfo, PendingValidators, RejoinCooldown, ValidatorLocks,
-	ValidatorStatus,
+    mock::*, ActiveValidators, Error, Event, LockInfo, PendingValidators, RejoinCooldown,
+    ValidatorLocks, ValidatorStatus,
 };
 use frame_support::{assert_noop, assert_ok, traits::Hooks};
+use pallet_session::SessionManager;
 use sp_runtime::{traits::Dispatchable, DispatchError, TokenError};
 
 /// Advance the chain to `target` block, calling `on_initialize` for each new block.
 fn run_to_block(target: u64) {
-	while System::block_number() < target {
-		let next = System::block_number() + 1;
-		System::set_block_number(next);
-		Validator::on_initialize(next);
-	}
+    while System::block_number() < target {
+        let next = System::block_number() + 1;
+        System::set_block_number(next);
+        Validator::on_initialize(next);
+    }
 }
 
 #[test]
 fn lock_succeeds_and_records_state() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
 
-		let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock recorded");
-		assert_eq!(
-			lock,
-			LockInfo {
-				amount: 1_000,
-				lock_block: 1,
-				expiry_block: 11,
-				status: ValidatorStatus::Active,
-			}
-		);
-		assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![ALICE]);
-		System::assert_last_event(
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock recorded");
+        assert_eq!(
+            lock,
+            LockInfo {
+                amount: 1_000,
+                lock_block: 1,
+                expiry_block: 11,
+                status: ValidatorStatus::Active,
+            }
+        );
+        assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![ALICE]);
+        System::assert_last_event(
 			Event::ValidatorLocked { who: ALICE, amount: 1_000, expiry_block: 11 }.into(),
-		);
-	});
+        );
+    });
 }
 
 #[test]
 fn lock_fails_when_balance_insufficient() {
-	new_test_ext().execute_with(|| {
-		assert_noop!(
-			Validator::lock(RuntimeOrigin::signed(EVE)),
-			Error::<Test>::InsufficientBalance
-		);
-		assert!(ValidatorLocks::<Test>::get(EVE).is_none());
-		assert!(PendingValidators::<Test>::get().is_empty());
-	});
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(EVE)),
+            Error::<Test>::InsufficientBalance
+        );
+        assert!(ValidatorLocks::<Test>::get(EVE).is_none());
+        assert!(PendingValidators::<Test>::get().is_empty());
+    });
 }
 
 #[test]
 fn lock_fails_when_already_validator() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		assert_noop!(
-			Validator::lock(RuntimeOrigin::signed(ALICE)),
-			Error::<Test>::AlreadyValidator
-		);
-	});
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::AlreadyValidator
+        );
+    });
 }
 
 #[test]
 fn lock_rejected_during_active_cooldown() {
-	new_test_ext().execute_with(|| {
-		RejoinCooldown::<Test>::insert(ALICE, 100u64);
-		assert_noop!(
-			Validator::lock(RuntimeOrigin::signed(ALICE)),
-			Error::<Test>::InCooldown
-		);
-		assert!(RejoinCooldown::<Test>::get(ALICE).is_some());
-	});
+    new_test_ext().execute_with(|| {
+        RejoinCooldown::<Test>::insert(ALICE, 100u64);
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::InCooldown
+        );
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_some());
+    });
 }
 
 #[test]
 fn lock_succeeds_after_cooldown_expires_and_clears_record() {
-	new_test_ext().execute_with(|| {
-		RejoinCooldown::<Test>::insert(ALICE, 1u64);
-		System::set_block_number(2);
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
-	});
+    new_test_ext().execute_with(|| {
+        RejoinCooldown::<Test>::insert(ALICE, 1u64);
+        System::set_block_number(2);
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
+    });
 }
 
 #[test]
 fn locked_balance_cannot_be_transferred() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
 
-		// Free balance is 10_000 and 1_000 is locked. Anything that would push the
-		// usable balance below 1_000 must be rejected by pallet-balances.
-		let call = pallet_balances::Call::<Test>::transfer_keep_alive {
-			dest: BOB,
-			value: 9_500,
-		};
-		let res = RuntimeCall::Balances(call).dispatch(RuntimeOrigin::signed(ALICE));
+        // Free balance is 10_000 and 1_000 is locked. Anything that would push the
+        // usable balance below 1_000 must be rejected by pallet-balances.
+        let call = pallet_balances::Call::<Test>::transfer_keep_alive {
+            dest: BOB,
+            value: 9_500,
+        };
+        let res = RuntimeCall::Balances(call).dispatch(RuntimeOrigin::signed(ALICE));
 		assert_eq!(res.unwrap_err().error, DispatchError::Token(TokenError::Frozen));
 
-		// A transfer that respects the lock still works.
+        // A transfer that respects the lock still works.
 		assert_ok!(Balances::transfer_keep_alive(RuntimeOrigin::signed(ALICE), BOB, 8_000));
-	});
+    });
 }
 
 #[test]
 fn lock_fails_when_pending_queue_full() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(CHARLIE)));
-		assert_noop!(
-			Validator::lock(RuntimeOrigin::signed(DAVE)),
-			Error::<Test>::TooManyValidators
-		);
-		assert!(ValidatorLocks::<Test>::get(DAVE).is_none());
-	});
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(CHARLIE)));
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(DAVE)),
+            Error::<Test>::TooManyValidators
+        );
+        assert!(ValidatorLocks::<Test>::get(DAVE).is_none());
+    });
 }
 
 #[test]
 fn auto_renew_skips_within_interval() {
-	new_test_ext().execute_with(|| {
-		// Lock at block 1 -> expiry = 11.
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		// At block 5: expiry - now = 6, elapsed_window = 5, not > 5 -> no renewal.
-		run_to_block(5);
-		let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock recorded");
-		assert_eq!(lock.expiry_block, 11);
-	});
+    new_test_ext().execute_with(|| {
+        // Lock at block 1 -> expiry = 11.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        // At block 5: expiry - now = 6, elapsed_window = 5, not > 5 -> no renewal.
+        run_to_block(5);
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock recorded");
+        assert_eq!(lock.expiry_block, 11);
+    });
 }
 
 #[test]
 fn auto_renew_extends_active_validator_lock() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		// At block 6: expiry - now = 5, elapsed_window = 5 >= 5 -> renew.
-		// New expiry = 6 + 10 = 16.
-		run_to_block(6);
-		let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock recorded");
-		assert_eq!(lock.expiry_block, 16);
-		assert_eq!(lock.lock_block, 1);
-		assert_eq!(lock.status, ValidatorStatus::Active);
-		System::assert_last_event(
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        // At block 6: expiry - now = 5, elapsed_window = 5 >= 5 -> renew.
+        // New expiry = 6 + 10 = 16.
+        run_to_block(6);
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock recorded");
+        assert_eq!(lock.expiry_block, 16);
+        assert_eq!(lock.lock_block, 1);
+        assert_eq!(lock.status, ValidatorStatus::Active);
+        System::assert_last_event(
 			Event::ValidatorLocked { who: ALICE, amount: 1_000, expiry_block: 16 }.into(),
-		);
-	});
+        );
+    });
 }
 
 #[test]
 fn auto_renew_skips_non_active_status() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		// Mark the validator as having requested exit; renewal must stop.
-		ValidatorLocks::<Test>::mutate(ALICE, |maybe| {
-			maybe.as_mut().unwrap().status = ValidatorStatus::ExitRequested;
-		});
-		run_to_block(8);
-		let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock recorded");
-		assert_eq!(lock.expiry_block, 11);
-		assert_eq!(lock.status, ValidatorStatus::ExitRequested);
-	});
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        // Mark the validator as having requested exit; renewal must stop.
+        ValidatorLocks::<Test>::mutate(ALICE, |maybe| {
+            maybe.as_mut().unwrap().status = ValidatorStatus::ExitRequested;
+        });
+        run_to_block(8);
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock recorded");
+        assert_eq!(lock.expiry_block, 11);
+        assert_eq!(lock.status, ValidatorStatus::ExitRequested);
+    });
 }
 
 #[test]
 fn request_exit_changes_status_and_removes_from_pending() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
-		assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
 
-		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
 
-		let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock kept");
-		assert_eq!(lock.status, ValidatorStatus::ExitRequested);
-		assert_eq!(lock.expiry_block, 11);
-		assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![BOB]);
-		System::assert_last_event(Event::ValidatorExitRequested { who: ALICE }.into());
-	});
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock kept");
+        assert_eq!(lock.status, ValidatorStatus::ExitRequested);
+        assert_eq!(lock.expiry_block, 11);
+        assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![BOB]);
+        System::assert_last_event(Event::ValidatorExitRequested { who: ALICE }.into());
+    });
 }
 
 #[test]
 fn request_exit_fails_when_not_validator() {
-	new_test_ext().execute_with(|| {
-		assert_noop!(
-			Validator::request_exit(RuntimeOrigin::signed(ALICE)),
-			Error::<Test>::NotValidator
-		);
-	});
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            Validator::request_exit(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::NotValidator
+        );
+    });
 }
 
 #[test]
 fn request_exit_fails_when_not_active() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
-		// Second call: status is ExitRequested, not Active.
-		assert_noop!(
-			Validator::request_exit(RuntimeOrigin::signed(ALICE)),
-			Error::<Test>::InvalidStatus
-		);
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+        // Second call: status is ExitRequested, not Active.
+        assert_noop!(
+            Validator::request_exit(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::InvalidStatus
+        );
 
-		// Kicked status also rejected.
-		ValidatorLocks::<Test>::mutate(BOB, |maybe| {
-			*maybe = Some(LockInfo {
-				amount: 1_000,
-				lock_block: 1,
-				expiry_block: 11,
-				status: ValidatorStatus::Kicked,
-			});
-		});
-		assert_noop!(
-			Validator::request_exit(RuntimeOrigin::signed(BOB)),
-			Error::<Test>::InvalidStatus
-		);
-	});
+        // Kicked status also rejected.
+        ValidatorLocks::<Test>::mutate(BOB, |maybe| {
+            *maybe = Some(LockInfo {
+                amount: 1_000,
+                lock_block: 1,
+                expiry_block: 11,
+                status: ValidatorStatus::Kicked,
+            });
+        });
+        assert_noop!(
+            Validator::request_exit(RuntimeOrigin::signed(BOB)),
+            Error::<Test>::InvalidStatus
+        );
+    });
 }
 
 #[test]
 fn request_exit_stops_auto_renewal() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
-		// Pass the renewal threshold: without exit, expiry would extend at block 6.
-		run_to_block(8);
-		let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock kept");
-		assert_eq!(lock.expiry_block, 11);
-		assert_eq!(lock.status, ValidatorStatus::ExitRequested);
-	});
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+        // Pass the renewal threshold: without exit, expiry would extend at block 6.
+        run_to_block(8);
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock kept");
+        assert_eq!(lock.expiry_block, 11);
+        assert_eq!(lock.status, ValidatorStatus::ExitRequested);
+    });
 }
 
 #[test]
 fn request_exit_keeps_lock_until_expiry() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
 
-		// Lock is still enforced: cannot move balance below the locked amount.
-		let call = pallet_balances::Call::<Test>::transfer_keep_alive {
-			dest: BOB,
-			value: 9_500,
-		};
-		let res = RuntimeCall::Balances(call).dispatch(RuntimeOrigin::signed(ALICE));
+        // Lock is still enforced: cannot move balance below the locked amount.
+        let call = pallet_balances::Call::<Test>::transfer_keep_alive {
+            dest: BOB,
+            value: 9_500,
+        };
+        let res = RuntimeCall::Balances(call).dispatch(RuntimeOrigin::signed(ALICE));
 		assert_eq!(res.unwrap_err().error, DispatchError::Token(TokenError::Frozen));
-	});
+    });
 }
 
 #[test]
 fn lock_released_when_expiry_reached() {
-	new_test_ext().execute_with(|| {
-		// Lock at block 1 -> expiry = 11. Request exit so renewal does not extend it.
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+    new_test_ext().execute_with(|| {
+        // Lock at block 1 -> expiry = 11. Request exit so renewal does not extend it.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
 
-		// Right before expiry: lock still in place.
-		run_to_block(10);
-		assert!(ValidatorLocks::<Test>::get(ALICE).is_some());
+        // Right before expiry: lock still in place.
+        run_to_block(10);
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_some());
 
-		// At expiry block: lock released, storage cleared, event emitted.
-		run_to_block(11);
-		assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
-		System::assert_last_event(
+        // At expiry block: lock released, storage cleared, event emitted.
+        run_to_block(11);
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+        System::assert_last_event(
 			Event::LockReleased { who: ALICE, amount: 1_000 }.into(),
-		);
+        );
 
-		// Funds are fully transferable again.
-		assert_ok!(Balances::transfer_keep_alive(
-			RuntimeOrigin::signed(ALICE),
-			BOB,
-			9_500
-		));
-	});
+        // Funds are fully transferable again.
+        assert_ok!(Balances::transfer_keep_alive(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            9_500
+        ));
+    });
 }
 
 #[test]
 fn unexpired_locks_not_released() {
-	new_test_ext().execute_with(|| {
-		// Two validators locked at block 1; both expire at block 11.
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
-		// Only ALICE requests exit so BOB keeps renewing.
-		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+    new_test_ext().execute_with(|| {
+        // Two validators locked at block 1; both expire at block 11.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        // Only ALICE requests exit so BOB keeps renewing.
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
 
-		// Advance to block 11: ALICE expires and is released. BOB renews twice
-		// (at blocks 6 and 11), so its expiry advances to 21 and stays Active.
-		run_to_block(11);
-		assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
-		let bob = ValidatorLocks::<Test>::get(BOB).expect("bob lock kept");
-		assert_eq!(bob.expiry_block, 21);
-		assert_eq!(bob.status, ValidatorStatus::Active);
-	});
+        // Advance to block 11: ALICE expires and is released. BOB renews twice
+        // (at blocks 6 and 11), so its expiry advances to 21 and stays Active.
+        run_to_block(11);
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+        let bob = ValidatorLocks::<Test>::get(BOB).expect("bob lock kept");
+        assert_eq!(bob.expiry_block, 21);
+        assert_eq!(bob.status, ValidatorStatus::Active);
+    });
 }
 
 #[test]
 fn released_account_can_relock() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
-		run_to_block(11);
-		assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+        run_to_block(11);
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
 
-		// Storage is cleaned up, so a fresh lock call must succeed.
-		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-		let lock = ValidatorLocks::<Test>::get(ALICE).expect("relock recorded");
-		assert_eq!(lock.lock_block, 11);
-		assert_eq!(lock.expiry_block, 21);
-		assert_eq!(lock.status, ValidatorStatus::Active);
-	});
+        // Storage is cleaned up, so a fresh lock call must succeed.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("relock recorded");
+        assert_eq!(lock.lock_block, 11);
+        assert_eq!(lock.expiry_block, 21);
+        assert_eq!(lock.status, ValidatorStatus::Active);
+    });
+}
+
+#[test]
+fn new_session_promotes_pending_validators() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+
+        let set = <Validator as SessionManager<AccountId>>::new_session(1)
+            .expect("set must change from empty");
+        assert_eq!(set, vec![ALICE, BOB]);
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
+        assert!(PendingValidators::<Test>::get().is_empty());
+    });
+}
+
+#[test]
+fn new_session_removes_exited_validator() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        let _ = <Validator as SessionManager<AccountId>>::new_session(1);
+
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+
+        let set = <Validator as SessionManager<AccountId>>::new_session(2)
+            .expect("set must change after exit");
+        assert_eq!(set, vec![BOB]);
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![BOB]);
+    });
+}
+
+#[test]
+fn new_session_removes_kicked_and_cooldown_validators() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(CHARLIE)));
+        let _ = <Validator as SessionManager<AccountId>>::new_session(1);
+
+        // Simulate kick / cooldown by mutating storage directly.
+        ValidatorLocks::<Test>::mutate(BOB, |maybe| {
+            maybe.as_mut().unwrap().status = ValidatorStatus::Kicked;
+        });
+        ValidatorLocks::<Test>::mutate(CHARLIE, |maybe| {
+            maybe.as_mut().unwrap().status = ValidatorStatus::Cooldown;
+        });
+
+        let set = <Validator as SessionManager<AccountId>>::new_session(2)
+            .expect("set must change after kick/cooldown");
+        assert_eq!(set, vec![ALICE]);
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE]);
+    });
+}
+
+#[test]
+fn new_session_returns_none_when_unchanged() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        let _ = <Validator as SessionManager<AccountId>>::new_session(1);
+        // No new lock and no exit: next session must be a no-op.
+        assert!(<Validator as SessionManager<AccountId>>::new_session(2).is_none());
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE]);
+    });
+}
+
+#[test]
+fn new_session_drops_validator_with_released_lock() {
+    new_test_ext().execute_with(|| {
+        // Lock and promote ALICE to active.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        let _ = <Validator as SessionManager<AccountId>>::new_session(1);
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE]);
+
+        // Exit and let the lock expire so ValidatorLocks is cleared.
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+        run_to_block(11);
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+
+        let set = <Validator as SessionManager<AccountId>>::new_session(2)
+            .expect("set must shrink to empty");
+        assert!(set.is_empty());
+        assert!(ActiveValidators::<Test>::get().is_empty());
+    });
 }
