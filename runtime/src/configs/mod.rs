@@ -328,6 +328,41 @@ where
 	}
 }
 
+/// Offence reporter that forwards GRANDPA equivocation reports into
+/// `pallet-validator`.
+///
+/// The `pallet-grandpa` built-in [`pallet_grandpa::EquivocationReportSystem`]
+/// expects a [`ReportOffence`] implementation keyed by the
+/// `IdentificationTuple` produced by `pallet-session/historical`, which in
+/// this runtime is `(AccountId, ())`. Upon receiving a verified offence we
+/// call [`pallet_validator::Pallet::note_equivocation`] for the offender,
+/// which switches the validator's lock to `Kicked`, records the rejoin
+/// cooldown deadline, and emits the `ValidatorKicked { Equivocation }`
+/// event. The next session boundary removes the validator from the active
+/// set via the existing session manager logic.
+pub struct GrandpaOffenceReporter;
+
+impl<O>
+	sp_staking::offence::ReportOffence<AccountId, (AccountId, ()), O>
+	for GrandpaOffenceReporter
+where
+	O: sp_staking::offence::Offence<(AccountId, ())>,
+{
+	fn report_offence(
+		_reporters: alloc::vec::Vec<AccountId>,
+		offence: O,
+	) -> Result<(), sp_staking::offence::OffenceError> {
+		for (offender, _) in offence.offenders() {
+			pallet_validator::Pallet::<Runtime>::note_equivocation(&offender);
+		}
+		Ok(())
+	}
+
+	fn is_known_offence(_offenders: &[(AccountId, ())], _time_slot: &O::TimeSlot) -> bool {
+		false
+	}
+}
+
 impl pallet_im_online::Config for Runtime {
 	type AuthorityId = pallet_im_online::sr25519::AuthorityId;
 	type RuntimeEvent = RuntimeEvent;
