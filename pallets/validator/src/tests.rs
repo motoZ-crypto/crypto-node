@@ -388,3 +388,24 @@ fn new_session_drops_validator_with_released_lock() {
         assert!(ActiveValidators::<Test>::get().is_empty());
     });
 }
+
+#[test]
+fn note_offline_increments_count_and_emits_event() {
+    new_test_ext().execute_with(|| {
+        use crate::OfflineSessionCount;
+
+        Validator::note_offline(&ALICE);
+        assert_eq!(OfflineSessionCount::<Test>::get(ALICE), 1);
+        System::assert_last_event(
+            Event::ValidatorReportedOffline { who: ALICE, count: 1 }.into(),
+        );
+
+        Validator::note_offline(&ALICE);
+        Validator::note_offline(&BOB);
+        assert_eq!(OfflineSessionCount::<Test>::get(ALICE), 2);
+        assert_eq!(OfflineSessionCount::<Test>::get(BOB), 1);
+        System::assert_last_event(
+            Event::ValidatorReportedOffline { who: BOB, count: 1 }.into(),
+        );
+    });
+}
