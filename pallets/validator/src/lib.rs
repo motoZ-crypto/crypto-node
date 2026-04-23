@@ -16,7 +16,10 @@ mod tests;
 extern crate alloc;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_support::traits::{Currency, LockableCurrency};
+use frame_support::{
+	traits::{Currency, LockableCurrency},
+	BoundedVec,
+};
 use scale_info::TypeInfo;
 use sp_runtime::traits::{Saturating, Zero};
 
@@ -100,6 +103,10 @@ pub mod pallet {
 	/// Validators waiting to be promoted into the active set at the next session boundary.
 	#[pallet::storage]
 	pub type PendingValidators<T: Config> = StorageValue<_, BoundedVec<T::AccountId, T::MaxValidators>, ValueQuery>;
+
+	/// Validators currently selected for the active session. Updated at every session boundary.
+	#[pallet::storage]
+	pub type ActiveValidators<T: Config> = StorageValue<_, BoundedVec<T::AccountId, T::MaxValidators>, ValueQuery>;
 
 	/// Rejoin cooldown deadline per account (block number).
 	#[pallet::storage]
@@ -309,4 +316,54 @@ pub mod pallet {
 			Ok(())
 		}
 	}
+}
+
+/// Drives `pallet-session` from the validator lifecycle storage.
+///
+/// At every new session, the active set is recomputed as:
+/// * keep current `ActiveValidators` whose [`ValidatorLocks`] entry is still in
+///   [`ValidatorStatus::Active`] (drops exited, kicked, cooldown, or removed accounts);
+/// * drain [`PendingValidators`] and append new entrants whose lock is `Active`.
+///
+/// Returns `Some(_)` only when the resulting set differs from the previous
+/// active set, matching the `pallet-session` convention.
+impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
+	fn new_session(_new_index: u32) -> Option<alloc::vec::Vec<T::AccountId>> {
+		let previous = ActiveValidators::<T>::get();
+
+		let is_active = |who: &T::AccountId| {
+			ValidatorLocks::<T>::get(who)
+				.map(|info| info.status == ValidatorStatus::Active)
+				.unwrap_or(false)
+		};
+
+		let mut next: BoundedVec<T::AccountId, T::MaxValidators> = BoundedVec::default();
+		for who in previous.iter() {
+			if is_active(who) {
+				// Bound is identical to `previous`'s, so this push cannot exceed it.
+				let _ = next.try_push(who.clone());
+			}
+		}
+
+		let pending = PendingValidators::<T>::take();
+		for who in pending.into_iter() {
+			if !is_active(&who) || next.iter().any(|a| a == &who) {
+				continue;
+			}
+			if next.try_push(who).is_err() {
+				// Bounded by `MaxValidators`; remaining entries stay dropped this session.
+				break;
+			}
+		}
+
+		if next == previous {
+			return None;
+		}
+		ActiveValidators::<T>::put(&next);
+		Some(next.into_inner())
+	}
+
+	fn end_session(_end_index: u32) {}
+
+	fn start_session(_start_index: u32) {}
 }

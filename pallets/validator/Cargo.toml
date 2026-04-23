@@ -14,6 +14,7 @@ codec = { features = ["derive"], workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
 pallet-balances.workspace = true
+pallet-session.workspace = true
 scale-info = { features = ["derive"], workspace = true }
 sp-runtime.workspace = true
 
@@ -28,6 +29,7 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"pallet-balances/std",
+	"pallet-session/std",
 	"scale-info/std",
 	"sp-runtime/std",
 ]
@@ -40,4 +42,5 @@ try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"pallet-balances/try-runtime",
+	"pallet-session/try-runtime",
 ]
