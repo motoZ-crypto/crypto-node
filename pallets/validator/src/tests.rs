@@ -240,3 +240,66 @@ fn request_exit_keeps_lock_until_expiry() {
 		assert_eq!(res.unwrap_err().error, DispatchError::Token(TokenError::Frozen));
 	});
 }
+
+#[test]
+fn lock_released_when_expiry_reached() {
+	new_test_ext().execute_with(|| {
+		// Lock at block 1 -> expiry = 11. Request exit so renewal does not extend it.
+		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+
+		// Right before expiry: lock still in place.
+		run_to_block(10);
+		assert!(ValidatorLocks::<Test>::get(ALICE).is_some());
+
+		// At expiry block: lock released, storage cleared, event emitted.
+		run_to_block(11);
+		assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+		System::assert_last_event(
+			Event::LockReleased { who: ALICE, amount: 1_000 }.into(),
+		);
+
+		// Funds are fully transferable again.
+		assert_ok!(Balances::transfer_keep_alive(
+			RuntimeOrigin::signed(ALICE),
+			BOB,
+			9_500
+		));
+	});
+}
+
+#[test]
+fn unexpired_locks_not_released() {
+	new_test_ext().execute_with(|| {
+		// Two validators locked at block 1; both expire at block 11.
+		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+		assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+		// Only ALICE requests exit so BOB keeps renewing.
+		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+
+		// Advance to block 11: ALICE expires and is released. BOB renews twice
+		// (at blocks 6 and 11), so its expiry advances to 21 and stays Active.
+		run_to_block(11);
+		assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+		let bob = ValidatorLocks::<Test>::get(BOB).expect("bob lock kept");
+		assert_eq!(bob.expiry_block, 21);
+		assert_eq!(bob.status, ValidatorStatus::Active);
+	});
+}
+
+#[test]
+fn released_account_can_relock() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+		run_to_block(11);
+		assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+
+		// Storage is cleaned up, so a fresh lock call must succeed.
+		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+		let lock = ValidatorLocks::<Test>::get(ALICE).expect("relock recorded");
+		assert_eq!(lock.lock_block, 11);
+		assert_eq!(lock.expiry_block, 21);
+		assert_eq!(lock.status, ValidatorStatus::Active);
+	});
+}
