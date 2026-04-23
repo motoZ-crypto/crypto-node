@@ -1,5 +1,6 @@
 use crate::{
 	mock::*, Error, Event, LockInfo, PendingValidators, RejoinCooldown, ValidatorLocks,
+	ValidatorStatus,
 };
 use frame_support::{assert_noop, assert_ok};
 use sp_runtime::{traits::Dispatchable, DispatchError, TokenError};
@@ -12,7 +13,12 @@ fn lock_succeeds_and_records_state() {
 		let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock recorded");
 		assert_eq!(
 			lock,
-			LockInfo { amount: 1_000, lock_block: 1, expiry_block: 11 }
+			LockInfo {
+				amount: 1_000,
+				lock_block: 1,
+				expiry_block: 11,
+				status: ValidatorStatus::Active,
+			}
 		);
 		assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![ALICE]);
 		System::assert_last_event(

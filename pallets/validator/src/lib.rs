@@ -44,6 +44,7 @@ pub struct LockInfo<Balance, BlockNumber> {
 	pub amount: Balance,
 	pub lock_block: BlockNumber,
 	pub expiry_block: BlockNumber,
+	pub status: ValidatorStatus,
 }
 
 #[frame_support::pallet]
@@ -215,7 +216,8 @@ pub mod pallet {
 				LockInfo {
 					amount,
 					lock_block: now,
-					expiry_block
+					expiry_block,
+					status: ValidatorStatus::Active,
 				},
 			);
 
