@@ -255,33 +255,6 @@ impl frame_support::traits::ValidatorSetWithIdentification<AccountId> for Valida
 	type IdentificationOf = UnitIdentification;
 }
 
-/// Forwards `pallet-im-online` unresponsiveness offences to `pallet-validator`.
-///
-/// We do not run economic slashing; we simply tally consecutive offline reports
-/// inside the validator pallet so that the eviction logic (separate issue) can
-/// kick repeatedly-offline validators.
-pub struct ImOnlineOffenceReporter;
-
-impl<O>
-	sp_staking::offence::ReportOffence<AccountId, (AccountId, ()), O>
-	for ImOnlineOffenceReporter
-where
-	O: sp_staking::offence::Offence<(AccountId, ())>,
-{
-	fn report_offence(
-		_reporters: alloc::vec::Vec<AccountId>,
-		offence: O,
-	) -> Result<(), sp_staking::offence::OffenceError> {
-		for (offender, _) in offence.offenders() {
-			pallet_validator::Pallet::<Runtime>::note_offline(&offender);
-		}
-		Ok(())
-	}
-
-	fn is_known_offence(_offenders: &[(AccountId, ())], _time_slot: &O::TimeSlot) -> bool {
-		false
-	}
-}
 
 parameter_types! {
 	/// Base priority for unsigned heartbeat extrinsics. Picked to be low enough
@@ -300,7 +273,7 @@ impl pallet_im_online::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorSet = ValidatorIdentification;
 	type NextSessionRotation = PeriodicSessions<SessionPeriod, SessionOffset>;
-	type ReportUnresponsiveness = ImOnlineOffenceReporter;
+	type ReportUnresponsiveness = ();
 	type UnsignedPriority = ImOnlineUnsignedPriority;
 	type MaxKeys = ImOnlineMaxKeys;
 	type MaxPeerInHeartbeats = ImOnlineMaxPeerInHeartbeats;

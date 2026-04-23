@@ -129,9 +129,6 @@ pub mod pallet {
 		ValidatorKicked { who: T::AccountId, reason: KickReason },
         /// A validator's lock was released after expiry.
 		LockReleased { who: T::AccountId, amount: BalanceOf<T> },
-        /// A validator was reported as offline by the liveness layer.
-        /// Carries the new accumulated offline session count for the account.
-        ValidatorReportedOffline { who: T::AccountId, count: u32 },
     }
 
     /// Reason a validator was removed from the active set.
@@ -374,17 +371,3 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
     fn start_session(_start_index: u32) {}
 }
 
-impl<T: Config> Pallet<T> {
-    /// Record an offline report from the liveness layer (e.g. `pallet-im-online`).
-    ///
-    /// Increments [`OfflineSessionCount`] for `who` by one and emits
-    /// [`Event::ValidatorReportedOffline`] with the new count. Eviction logic
-    /// (kick after consecutive offline sessions) is implemented separately.
-    pub fn note_offline(who: &T::AccountId) {
-        let count = OfflineSessionCount::<T>::mutate(who, |c| {
-            *c = c.saturating_add(1);
-            *c
-        });
-        Self::deposit_event(Event::ValidatorReportedOffline { who: who.clone(), count });
-    }
-}
