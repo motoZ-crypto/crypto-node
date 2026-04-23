@@ -370,3 +370,4 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 
     fn start_session(_start_index: u32) {}
 }
+

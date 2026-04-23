@@ -54,6 +54,7 @@ pub mod opaque {
 impl_opaque_keys! {
 	pub struct SessionKeys {
 		pub grandpa: Grandpa,
+		pub im_online: ImOnline,
 	}
 }
 
@@ -221,4 +222,23 @@ mod runtime {
 
 	#[runtime::pallet_index(12)]
 	pub type Validator = pallet_validator;
+
+	#[runtime::pallet_index(13)]
+	pub type ImOnline = pallet_im_online;
+}
+
+// pallet-im-online submits unsigned heartbeat extrinsics from offchain
+// workers. The runtime must expose how to build a bare (unsigned/inherent)
+// extrinsic for any pallet `Call`.
+impl<LocalCall> frame_system::offchain::CreateTransactionBase<LocalCall> for Runtime where RuntimeCall: From<LocalCall>,
+{
+	type Extrinsic = UncheckedExtrinsic;
+	type RuntimeCall = RuntimeCall;
+}
+
+impl<LocalCall> frame_system::offchain::CreateBare<LocalCall> for Runtime where RuntimeCall: From<LocalCall>,
+{
+	fn create_bare(call: RuntimeCall) -> UncheckedExtrinsic {
+		generic::UncheckedExtrinsic::new_bare(call).into()
+	}
 }
