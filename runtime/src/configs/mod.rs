@@ -42,7 +42,7 @@ use sp_version::RuntimeVersion;
 use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, DAYS, Hash, Nonce, PalletInfo, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-	SessionKeys, System, Validator, EXISTENTIAL_DEPOSIT, UNIT, VERSION,
+	Session, SessionKeys, System, Validator, EXISTENTIAL_DEPOSIT, UNIT, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -219,4 +219,90 @@ impl pallet_validator::Config for Runtime {
 	type LockId = ValidatorLockId;
 	type MaxValidators = ConstU32<1_000>;
 	type RenewInterval = ConstU32<{ 1 * DAYS }>;
+}
+
+/// `ValidatorSetWithIdentification` adapter over `pallet-session`.
+///
+/// `pallet-im-online` requires its `ValidatorSet` to also expose an
+/// `Identification` type so that offline reports can carry a per-validator
+/// payload. We do not run a separate slashing/staking subsystem yet, so the
+/// identification is a unit value.
+pub struct UnitIdentification;
+
+impl sp_runtime::traits::Convert<AccountId, Option<()>> for UnitIdentification {
+	fn convert(_: AccountId) -> Option<()> {
+		Some(())
+	}
+}
+
+pub struct ValidatorIdentification;
+
+impl frame_support::traits::ValidatorSet<AccountId> for ValidatorIdentification {
+	type ValidatorId = <Session as frame_support::traits::ValidatorSet<AccountId>>::ValidatorId;
+	type ValidatorIdOf = <Session as frame_support::traits::ValidatorSet<AccountId>>::ValidatorIdOf;
+
+	fn session_index() -> sp_staking::SessionIndex {
+		<Session as frame_support::traits::ValidatorSet<AccountId>>::session_index()
+	}
+
+	fn validators() -> alloc::vec::Vec<Self::ValidatorId> {
+		<Session as frame_support::traits::ValidatorSet<AccountId>>::validators()
+	}
+}
+
+impl frame_support::traits::ValidatorSetWithIdentification<AccountId> for ValidatorIdentification {
+	type Identification = ();
+	type IdentificationOf = UnitIdentification;
+}
+
+/// Forwards `pallet-im-online` unresponsiveness offences to `pallet-validator`.
+///
+/// We do not run economic slashing; we simply tally consecutive offline reports
+/// inside the validator pallet so that the eviction logic (separate issue) can
+/// kick repeatedly-offline validators.
+pub struct ImOnlineOffenceReporter;
+
+impl<O>
+	sp_staking::offence::ReportOffence<AccountId, (AccountId, ()), O>
+	for ImOnlineOffenceReporter
+where
+	O: sp_staking::offence::Offence<(AccountId, ())>,
+{
+	fn report_offence(
+		_reporters: alloc::vec::Vec<AccountId>,
+		offence: O,
+	) -> Result<(), sp_staking::offence::OffenceError> {
+		for (offender, _) in offence.offenders() {
+			pallet_validator::Pallet::<Runtime>::note_offline(&offender);
+		}
+		Ok(())
+	}
+
+	fn is_known_offence(_offenders: &[(AccountId, ())], _time_slot: &O::TimeSlot) -> bool {
+		false
+	}
+}
+
+parameter_types! {
+	/// Base priority for unsigned heartbeat extrinsics. Picked to be low enough
+	/// not to crowd out other unsigned traffic but high enough to land within
+	/// the session.
+	pub const ImOnlineUnsignedPriority: sp_runtime::transaction_validity::TransactionPriority =
+		sp_runtime::transaction_validity::TransactionPriority::MAX / 2;
+	/// Maximum number of `ImOnlineId` keys stored per session.
+	pub const ImOnlineMaxKeys: u32 = 1_000;
+	/// Maximum peers reported in a single heartbeat payload.
+	pub const ImOnlineMaxPeerInHeartbeats: u32 = 10_000;
+}
+
+impl pallet_im_online::Config for Runtime {
+	type AuthorityId = pallet_im_online::sr25519::AuthorityId;
+	type RuntimeEvent = RuntimeEvent;
+	type ValidatorSet = ValidatorIdentification;
+	type NextSessionRotation = PeriodicSessions<SessionPeriod, SessionOffset>;
+	type ReportUnresponsiveness = ImOnlineOffenceReporter;
+	type UnsignedPriority = ImOnlineUnsignedPriority;
+	type MaxKeys = ImOnlineMaxKeys;
+	type MaxPeerInHeartbeats = ImOnlineMaxPeerInHeartbeats;
+	type WeightInfo = ();
 }
