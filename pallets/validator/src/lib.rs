@@ -264,5 +264,35 @@ pub mod pallet {
 			Self::deposit_event(Event::ValidatorLocked { who, amount, expiry_block });
 			Ok(())
 		}
+
+		/// Request voluntary exit from the active validator set.
+		///
+		/// Only an `Active` validator may call this. The validator's status
+		/// becomes `ExitRequested`, auto-renewal stops, and the account is
+		/// removed from [`PendingValidators`] so it will not be promoted at
+		/// the next session boundary. The underlying currency lock is kept in
+		/// place until its original `expiry_block` is reached; early unlocking
+		/// is not permitted.
+		#[pallet::call_index(1)]
+		#[pallet::weight(Weight::from_parts(40_000_000, 0))]
+		pub fn request_exit(origin: OriginFor<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			ValidatorLocks::<T>::try_mutate(&who, |maybe_info| -> DispatchResult {
+				let info = maybe_info.as_mut().ok_or(Error::<T>::NotValidator)?;
+				ensure!(info.status == ValidatorStatus::Active, Error::<T>::InvalidStatus);
+				info.status = ValidatorStatus::ExitRequested;
+				Ok(())
+			})?;
+
+			PendingValidators::<T>::mutate(|queue| {
+				if let Some(pos) = queue.iter().position(|a| a == &who) {
+					queue.remove(pos);
+				}
+			});
+
+			Self::deposit_event(Event::ValidatorExitRequested { who });
+			Ok(())
+		}
 	}
 }
