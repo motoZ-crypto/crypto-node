@@ -157,3 +157,86 @@ fn auto_renew_skips_non_active_status() {
 		assert_eq!(lock.status, ValidatorStatus::ExitRequested);
 	});
 }
+
+#[test]
+fn request_exit_changes_status_and_removes_from_pending() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+		assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+		assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
+
+		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+
+		let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock kept");
+		assert_eq!(lock.status, ValidatorStatus::ExitRequested);
+		assert_eq!(lock.expiry_block, 11);
+		assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![BOB]);
+		System::assert_last_event(Event::ValidatorExitRequested { who: ALICE }.into());
+	});
+}
+
+#[test]
+fn request_exit_fails_when_not_validator() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(
+			Validator::request_exit(RuntimeOrigin::signed(ALICE)),
+			Error::<Test>::NotValidator
+		);
+	});
+}
+
+#[test]
+fn request_exit_fails_when_not_active() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+		// Second call: status is ExitRequested, not Active.
+		assert_noop!(
+			Validator::request_exit(RuntimeOrigin::signed(ALICE)),
+			Error::<Test>::InvalidStatus
+		);
+
+		// Kicked status also rejected.
+		ValidatorLocks::<Test>::mutate(BOB, |maybe| {
+			*maybe = Some(LockInfo {
+				amount: 1_000,
+				lock_block: 1,
+				expiry_block: 11,
+				status: ValidatorStatus::Kicked,
+			});
+		});
+		assert_noop!(
+			Validator::request_exit(RuntimeOrigin::signed(BOB)),
+			Error::<Test>::InvalidStatus
+		);
+	});
+}
+
+#[test]
+fn request_exit_stops_auto_renewal() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+		// Pass the renewal threshold: without exit, expiry would extend at block 6.
+		run_to_block(8);
+		let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock kept");
+		assert_eq!(lock.expiry_block, 11);
+		assert_eq!(lock.status, ValidatorStatus::ExitRequested);
+	});
+}
+
+#[test]
+fn request_exit_keeps_lock_until_expiry() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+		assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+
+		// Lock is still enforced: cannot move balance below the locked amount.
+		let call = pallet_balances::Call::<Test>::transfer_keep_alive {
+			dest: BOB,
+			value: 9_500,
+		};
+		let res = RuntimeCall::Balances(call).dispatch(RuntimeOrigin::signed(ALICE));
+		assert_eq!(res.unwrap_err().error, DispatchError::Token(TokenError::Frozen));
+	});
+}
