@@ -42,7 +42,7 @@ use sp_version::RuntimeVersion;
 use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, DAYS, Hash, Nonce, PalletInfo, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-	SessionKeys, System, EXISTENTIAL_DEPOSIT, UNIT, VERSION,
+	SessionKeys, System, Validator, EXISTENTIAL_DEPOSIT, UNIT, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -199,7 +199,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = ConvertInto;
 	type ShouldEndSession = PeriodicSessions<SessionPeriod, SessionOffset>;
 	type NextSessionRotation = PeriodicSessions<SessionPeriod, SessionOffset>;
-	type SessionManager = ();
+	type SessionManager = Validator;
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
 	type DisablingStrategy = ();
