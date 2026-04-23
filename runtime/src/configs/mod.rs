@@ -42,7 +42,7 @@ use sp_version::RuntimeVersion;
 use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-	SessionKeys, System, EXISTENTIAL_DEPOSIT, SLOT_DURATION, UNIT, VERSION,
+	SessionKeys, System, EXISTENTIAL_DEPOSIT, UNIT, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -50,6 +50,9 @@ const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 parameter_types! {
 	pub const BlockHashCount: BlockNumber = 2400;
 	pub const Version: RuntimeVersion = VERSION;
+
+	pub const TargetBlockTime: u64 = 20;
+	pub const DifficultyHalflife: u64 = 1800;
 
 	/// We allow for 2 seconds of compute with a 6 second average block time.
 	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
@@ -99,7 +102,7 @@ impl frame_system::Config for Runtime {
 impl pallet_timestamp::Config for Runtime {
 	type Moment = u64;
 	type OnTimestampSet = ();
-	type MinimumPeriod = ConstU64<{ SLOT_DURATION / 2 }>;
+	type MinimumPeriod = ConstU64<100>;
 	type WeightInfo = ();
 }
 
@@ -166,11 +169,6 @@ impl pallet_sudo::Config for Runtime {
 /// Configure the pallet-template in pallets/template.
 impl pallet_template::Config for Runtime {
 	type WeightInfo = pallet_template::weights::SubstrateWeight<Runtime>;
-}
-
-parameter_types! {
-	pub const TargetBlockTime: u64 = 20;
-	pub const DifficultyHalflife: u64 = 1800;
 }
 
 impl pallet_difficulty::Config for Runtime {
