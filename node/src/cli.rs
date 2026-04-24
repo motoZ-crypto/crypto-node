@@ -8,9 +8,9 @@ pub struct Cli {
 	#[clap(flatten)]
 	pub run: RunCmd,
 
-	/// Enable PoW block mining. Without this flag the node only syncs.
-	#[arg(long)]
-	pub miner: bool,
+	/// Enable PoW block mining and set the SS58 reward address.
+	#[arg(long, value_name = "SS58")]
+	pub miner: Option<String>,
 }
 
 #[derive(Debug, clap::Subcommand)]
