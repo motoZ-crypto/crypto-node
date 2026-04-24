@@ -2,7 +2,7 @@ use crate::{
     mock::*, ActiveValidators, Error, Event, KickReason, LockInfo, OfflineSessionCount,
     OfflineThisSession, PendingValidators, RejoinCooldown, ValidatorLocks, ValidatorStatus,
 };
-use frame_support::{assert_noop, assert_ok, traits::Hooks};
+use frame_support::{assert_noop, assert_ok, traits::Get, traits::Hooks};
 use pallet_session::SessionManager;
 use sp_runtime::{traits::Dispatchable, DispatchError, TokenError};
 
@@ -343,12 +343,12 @@ fn new_session_removes_kicked_and_cooldown_validators() {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(CHARLIE)));
         let _ = <Validator as SessionManager<AccountId>>::new_session(1);
 
-        // Simulate kick / cooldown by mutating storage directly.
+        // Simulate kicks via direct storage mutation.
         ValidatorLocks::<Test>::mutate(BOB, |maybe| {
             maybe.as_mut().unwrap().status = ValidatorStatus::Kicked;
         });
         ValidatorLocks::<Test>::mutate(CHARLIE, |maybe| {
-            maybe.as_mut().unwrap().status = ValidatorStatus::Cooldown;
+            maybe.as_mut().unwrap().status = ValidatorStatus::ExitRequested;
         });
 
         let set = <Validator as SessionManager<AccountId>>::new_session(2)
@@ -635,5 +635,46 @@ fn equivocation_blocks_relock_during_cooldown() {
         System::set_block_number(cooldown_until.saturating_add(1));
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
         assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
+    });
+}
+
+#[test]
+fn offline_does_not_overwrite_exit_requested() {
+    new_test_ext().execute_with(|| {
+        // Activate ALICE and BOB so the active set is populated.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        let _ = rotate_session(1);
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
+
+        // Pre-load offline counter to threshold-1 so the next offline report
+        // would normally trigger a kick at the next session boundary.
+        let threshold: u32 = <Test as crate::Config>::OfflineThreshold::get();
+        OfflineSessionCount::<Test>::insert(ALICE, threshold - 1);
+
+        // ALICE requests voluntary exit; she remains in `ActiveValidators`
+        // until the next session boundary.
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(
+            ValidatorLocks::<Test>::get(ALICE).unwrap().status,
+            ValidatorStatus::ExitRequested,
+        );
+
+        // ALICE is reported offline during the same session.
+        report_offline(ALICE);
+        let _ = rotate_session(2);
+
+        // The offline path must not downgrade ExitRequested into Kicked, must
+        // not write a RejoinCooldown, and must clear stale offline counters.
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
+        assert_eq!(lock.status, ValidatorStatus::ExitRequested);
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
+        assert_eq!(OfflineSessionCount::<Test>::get(ALICE), 0);
+        // No `ValidatorKicked` event should have been emitted for ALICE.
+        let kicked = System::events().into_iter().any(|e| matches!(
+            e.event,
+            RuntimeEvent::Validator(Event::ValidatorKicked { who: ALICE, .. })
+        ));
+        assert!(!kicked, "ExitRequested validator must not be kicked offline");
     });
 }
