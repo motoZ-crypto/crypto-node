@@ -208,10 +208,15 @@ pub mod pallet {
             }
 
             // Release expired locks: drop the currency lock, clear storage, emit event.
+            // Also clear stale liveness-tracking entries keyed by the account.
+            // `RejoinCooldown` is intentionally preserved: it represents a
+            // post-release penalty that must outlive the underlying lock.
             let release_count = to_release.len() as u64;
             for (who, amount) in to_release {
                 T::Currency::remove_lock(T::LockId::get(), &who);
                 ValidatorLocks::<T>::remove(&who);
+                OfflineSessionCount::<T>::remove(&who);
+                OfflineThisSession::<T>::remove(&who);
                 Self::deposit_event(Event::LockReleased { who, amount });
             }
 
