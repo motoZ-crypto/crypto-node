@@ -23,15 +23,15 @@ sha256pow = { path = "./consensus/sha256pow", default-features = false }
 pallet-difficulty = { path = "./pallets/difficulty", default-features = false }
 pallet-reward = { path = "./pallets/reward", default-features = false }
 pallet-validator = { path = "./pallets/validator", default-features = false }
-clap = { version = "4.6.0" }
+clap = { version = "4.6.1" }
 futures = { version = "0.3.32" }
 futures-timer = { version = "3.0.3" }
-jsonrpsee = { version = "0.24.3" }
+jsonrpsee = { version = "0.24.10" }
 sha2 = { version = "0.11.0", default-features = false }
-async-trait = { version = "0.1.88" }
-log = { version = "0.4.27" }
-parking_lot = { version = "0.12.3" }
-thiserror = { version = "1.0.69" }
+async-trait = { version = "0.1.89" }
+log = { version = "0.4.29" }
+parking_lot = { version = "0.12.5" }
+thiserror = { version = "2.0.18" }
 scale-info = { version = "2.11.6", default-features = false }
 serde_json = { version = "1.0.149", default-features = false }
 codec = { version = "3.7.4", default-features = false, package = "parity-scale-codec" }
