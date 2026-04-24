@@ -195,41 +195,37 @@ mod runtime {
 	#[runtime::pallet_index(1)]
 	pub type Timestamp = pallet_timestamp;
 
-	#[runtime::pallet_index(4)]
+	#[runtime::pallet_index(2)]
 	pub type Balances = pallet_balances;
 
-	#[runtime::pallet_index(5)]
+	#[runtime::pallet_index(3)]
 	pub type TransactionPayment = pallet_transaction_payment;
 
-	#[runtime::pallet_index(6)]
+	#[runtime::pallet_index(255)]
 	pub type Sudo = pallet_sudo;
 
-	// Include the custom logic from the pallet-template in the runtime.
-	#[runtime::pallet_index(7)]
-	pub type Template = pallet_template;
-
-	#[runtime::pallet_index(8)]
+	#[runtime::pallet_index(4)]
 	pub type BlockReward = pallet_reward;
 
-	#[runtime::pallet_index(9)]
+	#[runtime::pallet_index(5)]
 	pub type Difficulty = pallet_difficulty;
 
-	#[runtime::pallet_index(10)]
+	#[runtime::pallet_index(6)]
 	pub type Grandpa = pallet_grandpa;
 
-	#[runtime::pallet_index(11)]
-	pub type Session = pallet_session;
-
-	#[runtime::pallet_index(12)]
+	#[runtime::pallet_index(7)]
 	pub type Validator = pallet_validator;
 
-	#[runtime::pallet_index(13)]
+	#[runtime::pallet_index(8)]
 	pub type ImOnline = pallet_im_online;
 
-	#[runtime::pallet_index(14)]
+	#[runtime::pallet_index(9)]
+	pub type Session = pallet_session;
+
+	#[runtime::pallet_index(10)]
 	pub type Authorship = pallet_authorship;
 
-	#[runtime::pallet_index(15)]
+	#[runtime::pallet_index(11)]
 	pub type Historical = pallet_session::historical;
 }
 

@@ -12,7 +12,6 @@ members = [
     "node",
     "pallets/difficulty",
     "pallets/reward",
-    "pallets/template",
     "pallets/validator",
     "runtime",
 ]
@@ -23,7 +22,6 @@ solochain-template-runtime = { path = "./runtime", default-features = false }
 sha256pow = { path = "./consensus/sha256pow", default-features = false }
 pallet-difficulty = { path = "./pallets/difficulty", default-features = false }
 pallet-reward = { path = "./pallets/reward", default-features = false }
-pallet-template = { path = "./pallets/template", default-features = false }
 pallet-validator = { path = "./pallets/validator", default-features = false }
 clap = { version = "4.6.0" }
 futures = { version = "0.3.32" }

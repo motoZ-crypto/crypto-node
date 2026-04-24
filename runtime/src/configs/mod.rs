@@ -166,11 +166,6 @@ impl pallet_sudo::Config for Runtime {
 	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
-/// Configure the pallet-template in pallets/template.
-impl pallet_template::Config for Runtime {
-	type WeightInfo = pallet_template::weights::SubstrateWeight<Runtime>;
-}
-
 impl pallet_difficulty::Config for Runtime {
 	type TargetBlockTime = TargetBlockTime;
 	type Halflife = DifficultyHalflife;
