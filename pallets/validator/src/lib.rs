@@ -33,10 +33,9 @@ pub enum ValidatorStatus {
     Active,
     /// Voluntary exit requested; auto-renewal stopped, awaiting expiry.
     ExitRequested,
-    /// Kicked due to offline or equivocation; in cooldown.
+    /// Removed from the active set due to offline or equivocation.
+    /// The specific reason is conveyed by the [`pallet::KickReason`] event.
     Kicked,
-    /// Cooldown period after equivocation kick.
-    Cooldown,
 }
 
 /// Lock record for a validator's stake.
@@ -357,26 +356,23 @@ impl<T: Config> Pallet<T> {
 
     /// Mark `who` as kicked due to GRANDPA equivocation.
     ///
-    /// Idempotent: a non-validator or an already kicked/cooldown account is
-    /// silently ignored. The currency lock is left in place so that funds
-    /// unlock at the original `expiry_block`; auto-renewal stops because the
-    /// status leaves [`ValidatorStatus::Active`]. The account is removed from
-    /// the active set at the next session boundary by `new_session`.
+    /// Idempotent: a non-validator or an already kicked account is silently
+    /// ignored. The currency lock is left in place so that funds unlock at the
+    /// original `expiry_block`; auto-renewal stops because the status leaves
+    /// [`ValidatorStatus::Active`]. The account is removed from the active set
+    /// at the next session boundary by `new_session`.
     pub fn note_equivocation(who: &T::AccountId) {
-        let mut existed = false;
+        let mut transitioned = false;
         ValidatorLocks::<T>::mutate(who, |maybe_info| {
             if let Some(info) = maybe_info {
-                existed = true;
-                if info.status == ValidatorStatus::Kicked
-                    || info.status == ValidatorStatus::Cooldown
-                {
-                    existed = false;
+                if info.status == ValidatorStatus::Kicked {
                     return;
                 }
                 info.status = ValidatorStatus::Kicked;
+                transitioned = true;
             }
         });
-        if !existed {
+        if !transitioned {
             log::debug!(
                 target: LOG_TARGET,
                 "equivocation report ignored: account is not an active validator",
@@ -468,7 +464,7 @@ impl<T: Config> Pallet<T> {
 ///
 /// At every new session, the active set is recomputed as:
 /// * keep current `ActiveValidators` whose [`ValidatorLocks`] entry is still in
-///   [`ValidatorStatus::Active`] (drops exited, kicked, cooldown, or removed accounts);
+///   [`ValidatorStatus::Active`] (drops exited, kicked, or removed accounts);
 /// * drain [`PendingValidators`] and append new entrants whose lock is `Active`.
 ///
 /// Returns `Some(_)` only when the resulting set differs from the previous
