@@ -416,7 +416,21 @@ impl<T: Config> Pallet<T> {
         let active = ActiveValidators::<T>::get();
 
         for who in active.iter() {
+            
+            // Only Active validators participate in the offline accounting.
+            // Anything else (ExitRequested / Kicked / Cooldown / removed) is
+            // already on its way out and must not be overwritten by an offline
+            // kick, which would also clobber the original exit/kick reason.
+            let is_active = ValidatorLocks::<T>::get(who)
+                .map(|info| info.status == ValidatorStatus::Active)
+                .unwrap_or(false);
+            if !is_active {
+                OfflineSessionCount::<T>::remove(who);
+                continue;
+            }
+
             let was_offline = OfflineThisSession::<T>::take(who).is_some();
+
             if !was_offline {
                 if OfflineSessionCount::<T>::contains_key(who) {
                     OfflineSessionCount::<T>::remove(who);
