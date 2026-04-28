@@ -9,9 +9,8 @@ use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use sha256pow::Sha256DoubleHashAlgorithm;
-use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block};
+use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block, AccountId};
 use sp_core::U256;
-use sp_keyring::Sr25519Keyring;
 use std::{sync::Arc, time::Duration};
 
 pub(crate) type FullClient = sc_service::TFullClient<
@@ -123,6 +122,7 @@ pub fn new_full<
 >(
 	config: Configuration,
 	is_miner: bool,
+	miner_address: AccountId,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -306,8 +306,6 @@ pub fn new_full<
 			move |_, ()| async { Ok(sp_timestamp::InherentDataProvider::from_system_time()) },
 		);
 
-		// Default miner address: Alice (to be replaced by --miner-address CLI flag).
-		let miner_address = Sr25519Keyring::Alice.to_account_id();
 		let pre_runtime = codec::Encode::encode(&miner_address);
 
 		let (mining_handle, mining_worker) =
