@@ -233,7 +233,7 @@ parameter_types! {
 impl pallet_validator::Config for Runtime {
 	type Currency = Balances;
 	type LockAmount = ConstU128<{ 1_000 * UNIT }>;
-	type LockDuration = ConstU32<{ 180 * DAYS }>;
+	type LockDuration = ConstU32<{ 1 * DAYS }>;
 	type LockId = ValidatorLockId;
 	type MaxValidators = ConstU32<1_000>;
 	type RenewInterval = ConstU32<{ 1 * DAYS }>;
