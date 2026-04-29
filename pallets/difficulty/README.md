@@ -4,7 +4,7 @@ ASERT (Absolutely Scheduled Exponentially Rising Targets) difficulty adjustment 
 
 ## Overview
 
-This pallet dynamically adjusts the mining difficulty to keep block production close to the target interval (default: 20 seconds). Unlike recursive parent-based algorithms, ASERT computes each block's difficulty from a fixed anchor block using an exponential formula, eliminating cumulative rounding errors and feedback oscillation.
+This pallet dynamically adjusts the mining difficulty to keep block production close to the target interval (default: 20 seconds). It uses ASERT against a fixed anchor block (the original chain anchor), so each block's target is computed independently of intermediate blocks. When the gap between two consecutive blocks exceeds a configured threshold, the chain is considered to have resumed from an outage and the anchor is moved forward to the recovery block, so subsequent blocks are evaluated relative to the resumption point rather than dragging the long gap into every future computation.
 
 ### Formula
 
@@ -18,17 +18,23 @@ next_target = anchor_target × 2^((time_delta - target_block_time × height_delt
 - `target_block_time` — ideal block interval (20s)
 - `halflife` — 1800s (30 minutes)
 
+### Interruption recovery
+
+In `on_finalize`, after computing the new difficulty for the just-finalized block N, the pallet checks the gap from block N-1's timestamp. If the gap exceeds `BreakThresholdSecs` (default 1800s), it re-anchors to block N: `AnchorTarget = next_target`, `AnchorTimestamp = ts(N)`, `AnchorHeight = N`. From the next block onward, ASERT evaluates against the resumed anchor with `Δh` restarting from 1, so the chain does not need to mine many catch-up blocks to "work off" the outage gap.
+
+Miners continue to query `realtime_difficulty(now_secs)` which evaluates ASERT against the current anchor with wall-clock `Δt`. During an outage `Δt` grows and difficulty decays naturally, so the recovery block remains feasible to mine.
+
 ### Key Properties
 
-- **Absolute scheduling**: difficulty derived from anchor block, not recursively from parent
-- **No cumulative error**: each computation is independent
-- **Natural decay**: when blocks fall behind schedule, difficulty automatically decreases
-- **Pure integer arithmetic**: 16-bit fixed-point with cubic polynomial 2^x approximation, no floating point
+- **Absolute scheduling**: difficulty derived from a fixed anchor while the chain is healthy.
+- **No cumulative error**: each computation is independent of intermediate blocks.
+- **Natural decay**: when blocks fall behind schedule, difficulty automatically decreases.
+- **Interruption recovery**: anchor advances to the recovery block, eliminating the need to mine long bursts of catch-up blocks.
 
 ### Difficulty Decay (Hashrate Drop)
 
 | Time Without Blocks | Difficulty |
-|---------------------|------------|
+| ------------------- | ---------- |
 | 0                   | 100%       |
 | 30 min              | 50%        |
 | 1 hour              | 25%        |
@@ -46,12 +52,14 @@ The pallet exposes `DifficultyApi` with two methods:
 
 ```rust
 parameter_types! {
-    pub const TargetBlockTime: u64 = 20;      // seconds
-    pub const DifficultyHalflife: u64 = 1800;  // seconds (30 minutes)
+    pub const TargetBlockTime: u64 = 20;                       // seconds
+    pub const DifficultyHalflife: u64 = 1800;                  // seconds (30 minutes)
+    pub const DifficultyBreakThresholdSecs: u64 = 1800;        // outage threshold (seconds)
 }
 
 impl pallet_difficulty::Config for Runtime {
     type TargetBlockTime = TargetBlockTime;
     type Halflife = DifficultyHalflife;
+    type BreakThresholdSecs = DifficultyBreakThresholdSecs;
 }
 ```
