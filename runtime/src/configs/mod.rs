@@ -28,6 +28,7 @@ parameter_types! {
 
 	pub const TargetBlockTime: u64 = 20;
 	pub const DifficultyHalflife: u64 = 1800;
+	pub const DifficultyBreakThresholdSecs: u64 = 1800;
 
 	/// We allow for 2 seconds of compute with a 6 second average block time.
 	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
@@ -144,6 +145,7 @@ impl pallet_sudo::Config for Runtime {
 impl pallet_difficulty::Config for Runtime {
 	type TargetBlockTime = TargetBlockTime;
 	type Halflife = DifficultyHalflife;
+	type BreakThresholdSecs = DifficultyBreakThresholdSecs;
 }
 
 parameter_types! {

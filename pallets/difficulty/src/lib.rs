@@ -13,6 +13,11 @@ pub use pallet::*;
 
 pub mod asert;
 
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;
+
 sp_api::decl_runtime_apis! {
 	/// Runtime API for querying ASERT difficulty parameters and computing
 	/// real-time difficulty.
@@ -47,6 +52,10 @@ pub mod pallet {
 		/// ASERT halflife in seconds (e.g. 1800 = 30 minutes).
 		#[pallet::constant]
 		type Halflife: Get<u64>;
+
+		/// Interruption threshold in seconds.
+		#[pallet::constant]
+		type BreakThresholdSecs: Get<u64>;
 	}
 
 	/// Current mining difficulty (U256).
@@ -59,14 +68,17 @@ pub mod pallet {
 
 	/// Anchor block target value (inverse of difficulty).
 	///
-	/// `target = U256::MAX / difficulty`. Set at genesis.
+	/// `target = U256::MAX / difficulty`. Set at genesis and only
+	/// updated when `on_finalize` detects an interruption (a gap from
+	/// the parent block exceeding [`Config::BreakThresholdSecs`]).
 	#[pallet::storage]
 	#[pallet::getter(fn anchor_target)]
 	pub type AnchorTarget<T: Config> = StorageValue<_, U256, ValueQuery>;
 
 	/// Timestamp of the anchor block (seconds since Unix epoch).
 	///
-	/// Auto-initialized on the first block with a valid timestamp.
+	/// Auto-initialized on the first block with a valid timestamp,
+	/// then only re-set on interruption recovery.
 	#[pallet::storage]
 	#[pallet::getter(fn anchor_timestamp)]
 	pub type AnchorTimestamp<T: Config> = StorageValue<_, u64, ValueQuery>;
@@ -75,6 +87,14 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn anchor_height)]
 	pub type AnchorHeight<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+	/// Timestamp of the most recently finalized block (seconds).
+	///
+	/// Used to detect inter-block gaps and decide whether the next
+	/// block resumes from an interruption.
+	#[pallet::storage]
+	#[pallet::getter(fn last_block_timestamp)]
+	pub type LastBlockTimestamp<T: Config> = StorageValue<_, u64, ValueQuery>;
 
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config> {
@@ -145,12 +165,13 @@ pub mod pallet {
 			let now_secs = now_ms / 1000;
 
 			// Auto-initialize anchor on the first block with a valid
-			// timestamp.  This block becomes the anchor — keep the
+			// timestamp. This block becomes the anchor — keep the
 			// initial difficulty unchanged.
 			let anchor_ts = AnchorTimestamp::<T>::get();
 			if anchor_ts == 0 && now_secs > 0 {
 				AnchorTimestamp::<T>::put(now_secs);
 				AnchorHeight::<T>::put(current_height);
+				LastBlockTimestamp::<T>::put(now_secs);
 				return;
 			}
 
@@ -158,6 +179,7 @@ pub mod pallet {
 
 			// Skip ASERT on the anchor block itself.
 			if current_height <= anchor_height {
+				LastBlockTimestamp::<T>::put(now_secs);
 				return;
 			}
 
@@ -171,6 +193,7 @@ pub mod pallet {
 
 			let anchor_target = AnchorTarget::<T>::get();
 			if anchor_target.is_zero() {
+				LastBlockTimestamp::<T>::put(now_secs);
 				return;
 			}
 
@@ -190,6 +213,22 @@ pub mod pallet {
 			};
 
 			CurrentDifficulty::<T>::put(new_difficulty);
+
+			// Interruption recovery: if the gap from the parent block
+			// exceeded `BreakThresholdSecs`, re-anchor onto the just-
+			// finalized block. This resets `height_delta` so that
+			// subsequent blocks compute their target relative to the
+			// recovery block rather than having to "pay back" the long
+			// outage gap through many fast catch-up blocks.
+			let last_ts = LastBlockTimestamp::<T>::get();
+			let block_gap = now_secs.saturating_sub(last_ts);
+			if block_gap > T::BreakThresholdSecs::get() {
+				AnchorTarget::<T>::put(next_target);
+				AnchorTimestamp::<T>::put(now_secs);
+				AnchorHeight::<T>::put(current_height);
+			}
+
+			LastBlockTimestamp::<T>::put(now_secs);
 		}
 	}
 }
