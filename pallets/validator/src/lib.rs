@@ -127,6 +127,60 @@ pub mod pallet {
     #[pallet::storage]
 	pub type OfflineThisSession<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
 
+    /// Genesis configuration for `pallet-validator`.
+    ///
+    /// `initial_validators` lists the accounts that must be present in the
+    /// active validator set at block 0. Each account is locked using
+    /// `Config::LockAmount` and `Config::LockDuration` so that subsequent
+    /// auto-renewal, exit, and kick logic operates on real lock records.
+    /// The accounts are pushed directly into `ActiveValidators` (not
+    /// `PendingValidators`) so that the very first session already has a
+    /// non-empty authority set for `pallet-session` and downstream consumers
+    /// such as `pallet-grandpa` and `pallet-im-online`.
+    #[pallet::genesis_config]
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T: Config> {
+        pub initial_validators: alloc::vec::Vec<T::AccountId>,
+        #[serde(skip)]
+        pub _phantom: core::marker::PhantomData<T>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            let amount = T::LockAmount::get();
+            let duration = T::LockDuration::get();
+            let now = BlockNumberFor::<T>::zero();
+            let expiry_block = now.saturating_add(duration);
+            let lock_id = T::LockId::get();
+
+            let mut active: BoundedVec<T::AccountId, T::MaxValidators> = BoundedVec::default();
+            for who in &self.initial_validators {
+                if ValidatorLocks::<T>::contains_key(who) {
+                    continue;
+                }
+                assert!(
+                    T::Currency::free_balance(who) >= amount,
+                    "Genesis validator must be endowed with at least LockAmount",
+                );
+                T::Currency::set_lock(lock_id, who, amount, WithdrawReasons::all());
+                ValidatorLocks::<T>::insert(
+                    who,
+                    LockInfo {
+                        amount,
+                        lock_block: now,
+                        expiry_block,
+                        status: ValidatorStatus::Active,
+                    },
+                );
+                active
+                    .try_push(who.clone())
+                    .expect("Genesis validators exceed MaxValidators");
+            }
+            ActiveValidators::<T>::put(active);
+        }
+    }
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -520,6 +574,20 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
         }
 
         if next == previous {
+            return None;
+        }
+        // Empty-set fallback (decision: see `.dev/issues/issue-037`).
+        //
+        // If every active validator was just dropped (exit, kick, or expiry)
+        // and no replacement is pending, returning `Some(empty)` would hand
+        // `pallet-session` an empty authority set and brick downstream
+        // consumers (`pallet-grandpa`, `pallet-im-online`). Instead we return
+        // `None` so the previous authority set is retained on-chain. Those
+        // validators have no lock anymore, so they will not actually vote;
+        // GRANDPA finality stalls naturally while PoW keeps producing blocks
+        // until a new validator locks and the next session boundary swaps
+        // the set in.
+        if next.is_empty() && !previous.is_empty() {
             return None;
         }
         ActiveValidators::<T>::put(&next);

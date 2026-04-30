@@ -382,10 +382,45 @@ fn new_session_drops_validator_with_released_lock() {
         run_to_block(11);
         assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
 
-        let set = <Validator as SessionManager<AccountId>>::new_session(2)
-            .expect("set must shrink to empty");
-        assert!(set.is_empty());
-        assert!(ActiveValidators::<Test>::get().is_empty());
+        // Empty-set fallback (decision: `.dev/issues/issue-037`): when the
+        // computed next set would be empty we return `None` and retain the
+        // previous authority set on-chain so downstream consumers
+        // (`pallet-grandpa`, `pallet-im-online`) do not receive an empty
+        // authority list. GRANDPA finality stalls naturally because the
+        // retained validators no longer hold valid locks; PoW keeps producing
+        // blocks until a new validator locks.
+        assert!(<Validator as SessionManager<AccountId>>::new_session(2).is_none());
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE]);
+    });
+}
+
+#[test]
+fn empty_set_fallback_keeps_previous_authorities_after_mass_kick() {
+    new_test_ext().execute_with(|| {
+        // Promote ALICE and BOB into the active set.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        let set = <Validator as SessionManager<AccountId>>::new_session(1)
+            .expect("initial promotion");
+        assert_eq!(set, vec![ALICE, BOB]);
+
+        // Kick both validators (e.g. equivocation). Their status switches to
+        // `Kicked` so they are excluded from the next active set, leaving it
+        // empty.
+        Validator::note_equivocation(&ALICE);
+        Validator::note_equivocation(&BOB);
+        assert_eq!(
+            ValidatorLocks::<Test>::get(ALICE).unwrap().status,
+            ValidatorStatus::Kicked
+        );
+        assert_eq!(
+            ValidatorLocks::<Test>::get(BOB).unwrap().status,
+            ValidatorStatus::Kicked
+        );
+
+        // Empty-set fallback must retain the previous active set.
+        assert!(<Validator as SessionManager<AccountId>>::new_session(2).is_none());
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
     });
 }
 

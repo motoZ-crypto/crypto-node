@@ -17,7 +17,7 @@
 
 use crate::{
 	AccountId, BalancesConfig, DifficultyConfig, RuntimeGenesisConfig, SessionConfig, SessionKeys,
-	SudoConfig, UNIT,
+	SudoConfig, ValidatorConfig, UNIT,
 };
 use alloc::{vec, vec::Vec};
 use frame_support::build_struct_json_patch;
@@ -36,6 +36,8 @@ fn testnet_genesis(
 	let total_supply: u128 = 1_000_000_000 * UNIT;
 	let balance_per_account = total_supply / endowed_accounts.len() as u128;
 	let initial_difficulty = U256::from(1_000_000u64);
+	let validator_accounts: Vec<AccountId> =
+		initial_validators.iter().map(|(a, _, _)| a.clone()).collect();
 	build_struct_json_patch!(RuntimeGenesisConfig {
 		balances: BalancesConfig {
 			balances: endowed_accounts
@@ -59,6 +61,10 @@ fn testnet_genesis(
 				})
 				.collect::<Vec<_>>(),
 		},
+		validator: ValidatorConfig {
+			initial_validators: validator_accounts,
+			..Default::default()
+		},
 	})
 }
 
@@ -76,6 +82,7 @@ pub fn development_config_genesis() -> Value {
 		vec![
 			Sr25519Keyring::Alice.to_account_id(),
 			Sr25519Keyring::Bob.to_account_id(),
+			Sr25519Keyring::Charlie.to_account_id(),
 			Sr25519Keyring::AliceStash.to_account_id(),
 			Sr25519Keyring::BobStash.to_account_id(),
 		],

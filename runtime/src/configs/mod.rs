@@ -237,7 +237,7 @@ impl pallet_validator::Config for Runtime {
 	type LockId = ValidatorLockId;
 	type MaxValidators = ConstU32<1_000>;
 	type RenewInterval = ConstU32<{ 1 * DAYS }>;
-	type OfflineThreshold = ConstU32<12>;
+	type OfflineThreshold = ConstU32<1>;
 	type RejoinCooldownPeriod = ConstU32<{ 1 * DAYS }>;
 }
 
