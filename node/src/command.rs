@@ -173,20 +173,15 @@ pub fn run() -> sc_cli::Result<()> {
 			runner.sync_run(|config| cmd.run::<Block>(&config))
 		},
 		None => {
-			let miner_account = match cli.miner.as_deref() {
-				Some(addr) => solochain_template_runtime::AccountId::from_ss58check(addr)
-					.map_err(|e| {
-						sc_cli::Error::Input(format!(
-							"invalid --miner address `{}`: {:?}",
-							addr, e
-						))
-					})?,
-				None => cli
-					.run
-					.get_keyring()
-					.unwrap_or(Sr25519Keyring::Alice)
-					.to_account_id(),
-			};
+			let miner_account = cli
+				.miner
+				.as_deref()
+				.map(|addr| {
+					solochain_template_runtime::AccountId::from_ss58check(addr)
+						.map_err(|e| format!("invalid --miner address `{}`: {:?}", addr, e))
+				})
+				.transpose()
+				.map_err(sc_cli::Error::Input)?;
 			let runner = cli.create_runner(&cli.run)?;
 			runner.run_node_until_exit(|config| async move {
 				match config.network.network_backend {
