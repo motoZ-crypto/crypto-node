@@ -305,7 +305,7 @@ pub fn new_full<
 			move |_, ()| async { Ok(sp_timestamp::InherentDataProvider::from_system_time()) },
 		);
 
-		log::info!(target: "pow", "⛏️ Miner: {}", miner_address);
+		log::info!(target: "pow", "⛏️  Miner: {}", miner_address);
 		let pre_runtime = codec::Encode::encode(&miner_address);
 
 		let (mining_handle, mining_worker) =
