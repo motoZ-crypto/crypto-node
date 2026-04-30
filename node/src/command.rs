@@ -8,6 +8,7 @@ use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
 use solochain_template_runtime::{Block, EXISTENTIAL_DEPOSIT};
+use sp_core::crypto::Ss58Codec;
 use sp_keyring::Sr25519Keyring;
 
 impl SubstrateCli for Cli {
@@ -172,8 +173,15 @@ pub fn run() -> sc_cli::Result<()> {
 			runner.sync_run(|config| cmd.run::<Block>(&config))
 		},
 		None => {
-			let mine = cli.miner;
-			let miner_account = cli.run.get_keyring().unwrap_or(Sr25519Keyring::Alice).to_account_id();
+			let miner_account = cli
+				.miner
+				.as_deref()
+				.map(|addr| {
+					solochain_template_runtime::AccountId::from_ss58check(addr)
+						.map_err(|e| format!("invalid --miner address `{}`: {:?}", addr, e))
+				})
+				.transpose()
+				.map_err(sc_cli::Error::Input)?;
 			let runner = cli.create_runner(&cli.run)?;
 			runner.run_node_until_exit(|config| async move {
 				match config.network.network_backend {
@@ -182,10 +190,10 @@ pub fn run() -> sc_cli::Result<()> {
 							solochain_template_runtime::opaque::Block,
 							<solochain_template_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
 						>,
-					>(config, mine, miner_account)
+					>(config, miner_account)
 					.map_err(sc_cli::Error::Service),
 					sc_network::config::NetworkBackendType::Litep2p =>
-						service::new_full::<sc_network::Litep2pNetworkBackend>(config, mine, miner_account)
+						service::new_full::<sc_network::Litep2pNetworkBackend>(config, miner_account)
 							.map_err(sc_cli::Error::Service),
 				}
 			})

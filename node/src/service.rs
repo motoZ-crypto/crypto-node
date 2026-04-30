@@ -121,8 +121,7 @@ pub fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
 	config: Configuration,
-	is_miner: bool,
-	miner_address: AccountId,
+	miner_account: Option<AccountId>,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -286,7 +285,7 @@ pub fn new_full<
 		drop(grandpa_notification_service);
 	}
 
-	if is_miner {
+	if let Some(miner_address) = miner_account {
 		let proposer_factory = sc_basic_authorship::ProposerFactory::new(
 			task_manager.spawn_handle(),
 			client.clone(),
@@ -306,6 +305,7 @@ pub fn new_full<
 			move |_, ()| async { Ok(sp_timestamp::InherentDataProvider::from_system_time()) },
 		);
 
+		log::info!(target: "pow", "⛏️  Miner: {}", miner_address);
 		let pre_runtime = codec::Encode::encode(&miner_address);
 
 		let (mining_handle, mining_worker) =
