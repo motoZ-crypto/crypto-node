@@ -576,7 +576,7 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
         if next == previous {
             return None;
         }
-        // Empty-set fallback (decision: see `.dev/issues/issue-037`).
+        // Empty-set fallback
         //
         // If every active validator was just dropped (exit, kick, or expiry)
         // and no replacement is pending, returning `Some(empty)` would hand
@@ -597,6 +597,8 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
     fn end_session(_end_index: u32) {}
 
     fn start_session(_start_index: u32) {}
+
+    fn new_session_genesis(_new_index: u32) -> Option<alloc::vec::Vec<T::AccountId>> { Some(ActiveValidators::<T>::get().into_inner()) }
 }
 
 /// `pallet-session/historical` specialization. We do not maintain a separate
@@ -609,12 +611,17 @@ impl<T: Config> pallet_session::historical::SessionManager<T::AccountId, ()> for
             .map(|v| v.into_iter().map(|id| (id, ())).collect())
     }
 
+    fn end_session(end_index: u32) {
+        <Self as pallet_session::SessionManager<T::AccountId>>::end_session(end_index);
+    }
+
     fn start_session(start_index: u32) {
         <Self as pallet_session::SessionManager<T::AccountId>>::start_session(start_index);
     }
 
-    fn end_session(end_index: u32) {
-        <Self as pallet_session::SessionManager<T::AccountId>>::end_session(end_index);
+    fn new_session_genesis(new_index: u32) -> Option<alloc::vec::Vec<(T::AccountId, ())>> {
+        <Self as pallet_session::SessionManager<T::AccountId>>::new_session_genesis(new_index)
+            .map(|v| v.into_iter().map(|id| (id, ())).collect())
     }
-}
 
+}
