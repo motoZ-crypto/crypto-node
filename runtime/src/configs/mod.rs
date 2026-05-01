@@ -15,9 +15,10 @@ use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-	AccountId, Balance, Balances, Block, BlockNumber, DAYS, Hash, Nonce, PalletInfo, Runtime,
+	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
 	Session, SessionKeys, System, Validator, EXISTENTIAL_DEPOSIT, UNIT, VERSION,
+	DAYS, MINUTES
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -27,8 +28,6 @@ parameter_types! {
 	pub const Version: RuntimeVersion = VERSION;
 
 	pub const TargetBlockTime: u64 = 20;
-	pub const DifficultyHalflife: u64 = 1800;
-	pub const DifficultyBreakThresholdSecs: u64 = 1800;
 
 	/// We allow for 2 seconds of compute with a 6 second average block time.
 	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
@@ -43,6 +42,18 @@ parameter_types! {
 		)
 		.build();
 	pub const SS58Prefix: u8 = 42;
+}
+
+#[cfg(not(feature = "test-runtime"))]
+parameter_types! {
+	pub const DifficultyHalflife: u64 = 1800;
+	pub const DifficultyBreakThresholdSecs: u64 = 1800;
+}
+
+#[cfg(feature = "test-runtime")]
+parameter_types! {
+	pub const DifficultyHalflife: u64 = 60;
+	pub const DifficultyBreakThresholdSecs: u64 = 1800;
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -204,13 +215,6 @@ impl pallet_session::historical::Config for Runtime {
 	type FullIdentificationOf = UnitIdentification;
 }
 
-parameter_types! {
-	/// Length of a session in blocks (~10 minutes at 6s block time, but our PoW
-	/// targets ~20s, so a session lasts ~10 minutes either way for genesis tests).
-	pub const SessionPeriod: BlockNumber = 30;
-	pub const SessionOffset: BlockNumber = 0;
-}
-
 impl pallet_session::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = AccountId;
@@ -230,6 +234,13 @@ parameter_types! {
 	pub const ValidatorLockId: frame_support::traits::LockIdentifier = *b"validatr";
 }
 
+#[cfg(not(feature = "test-runtime"))]
+parameter_types! {
+	pub const SessionPeriod: BlockNumber = 10 * MINUTES;
+	pub const SessionOffset: BlockNumber = 0 * MINUTES;
+}
+
+#[cfg(not(feature = "test-runtime"))]
 impl pallet_validator::Config for Runtime {
 	type Currency = Balances;
 	type SessionInterface = ValidatorSessionAdapter;
@@ -242,6 +253,25 @@ impl pallet_validator::Config for Runtime {
 	type RejoinCooldownPeriod = ConstU32<{ 1 * DAYS }>;
 }
 
+#[cfg(feature = "test-runtime")]
+parameter_types! {
+	pub const SessionPeriod: BlockNumber = 3 * MINUTES;
+	pub const SessionOffset: BlockNumber = 0 * MINUTES;
+}
+
+#[cfg(feature = "test-runtime")]
+impl pallet_validator::Config for Runtime {
+	type Currency = Balances;
+	type SessionInterface = ValidatorSessionAdapter;
+	type LockAmount = ConstU128<{ 1 * UNIT }>;
+	type LockDuration = ConstU32<{ 20 * MINUTES }>;
+	type LockId = ValidatorLockId;
+	type MaxValidators = ConstU32<4>;
+	type RenewInterval = ConstU32<{ 10 * MINUTES }>;
+	type OfflineThreshold = ConstU32<1>;
+	type RejoinCooldownPeriod = ConstU32<{ 1 * MINUTES }>;
+}
+
 /// Adapter wiring `pallet_validator::SessionInterface` to `pallet-session`.
 /// Lets validator verify session keys exist before queuing a candidate.
 pub struct ValidatorSessionAdapter;
@@ -251,7 +281,6 @@ impl pallet_validator::SessionInterface<AccountId> for ValidatorSessionAdapter {
 		pallet_session::NextKeys::<Runtime>::contains_key(who)
 	}
 }
-
 /// `ValidatorSetWithIdentification` adapter over `pallet-session`.
 ///
 /// `pallet-im-online` requires its `ValidatorSet` to also expose an

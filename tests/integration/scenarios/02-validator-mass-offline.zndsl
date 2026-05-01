@@ -1,0 +1,40 @@
+Description: Validator mass offline + GRANDPA continuity
+Network: ../zombienet.toml
+Creds: /tmp/zn-creds.cfg
+
+alice: is up within 60 seconds
+bob: is up within 60 seconds
+charlie: is up within 60 seconds
+
+# Establish baseline finality.
+alice: js-script ../js-scripts/check-finality-progress.js with "2" return is 1 within 180 seconds
+
+# === Stop 1/3 of validators (1 of 3) -> GRANDPA must continue ===
+# We use `restart after N seconds` rather than `pause`/`resume` because
+# zombienet `pause` (SIGSTOP) freezes the process while keeping its TCP
+# sockets open, so GRANDPA peers wait for Bob's votes until round timeouts
+# elapse and finality stalls (~10 min/block). A real process kill closes
+# the sockets immediately and the surviving 2/3 weight finalizes normally.
+# The assertion runs AFTER the 60s outage and verifies finality recovered
+# (or kept progressing) by advancing >= 2 blocks within 60s.
+bob: restart after 60 seconds
+alice: js-script ../js-scripts/check-finality-progress.js with "2" return is 1 within 60 seconds
+
+# === Stop 2/3 of validators -> GRANDPA must stall but PoW must keep
+# producing blocks. We assert the negation: finality does NOT advance by
+# more than 0 within a short window. Mining is verified independently by
+# observing alice best block growth via `reports block height is at least N`.
+# `pause` is acceptable here because we do NOT assert on finality during
+# the outage; we only check that PoW production continues. ===
+bob: pause
+charlie: pause
+sleep 60 seconds
+
+# alice should still be mining new blocks (PoW only requires the chain to
+# advance; no quorum needed). We pick a block that is "current+a few".
+alice: reports block height is at least 30 within 240 seconds
+
+# Bring everyone back; finality should resume.
+bob: resume
+charlie: resume
+alice: js-script ../js-scripts/check-finality-progress.js with "3" return is 1 within 360 seconds

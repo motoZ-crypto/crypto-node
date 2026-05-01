@@ -1,0 +1,34 @@
+Description: GRANDPA equivocation reaction - placeholder; full coverage requires unit tests
+Network: ../zombienet.toml
+Creds: /tmp/zn-creds.cfg
+
+alice: is up within 60 seconds
+
+# Equivocation (a validator signing two conflicting GRANDPA votes in the
+# same round) is hard to construct safely from a black-box integration
+# harness:
+#   * `pallet_validator::note_equivocation` is a Rust function, not a
+#     dispatchable, so we cannot call it from an extrinsic.
+#   * `pallet_grandpa::report_equivocation_unsigned` requires a real,
+#     correctly-encoded `EquivocationProof` plus a `KeyOwnerProof` from
+#     pallet-session/historical, which means actually producing two
+#     conflicting votes from the same authority — this needs either a
+#     forked node binary that maliciously double-signs, or a pre-recorded
+#     proof captured from another chain instance.
+#   * Neither path fits cleanly inside the zombienet harness.
+#
+# Instead, the equivocation reaction (status -> Kicked, RejoinCooldown
+# set, ValidatorKicked { Equivocation } event, removal from active set
+# at next session boundary) is exhaustively covered by the pallet unit
+# tests:
+#   * note_equivocation_kicks_active_validator
+#   * note_equivocation_is_idempotent
+#   * note_equivocation_ignores_non_validator
+#   * equivocation_kick_stops_auto_renewal
+#   * equivocation_lock_released_at_original_expiry
+#   * equivocation_removes_from_active_set_next_session
+#   * equivocation_blocks_relock_during_cooldown
+# (see pallets/validator/src/tests.rs)
+#
+# This scenario currently asserts only that the network comes up cleanly;
+# re-enable it later with a proper proof-injection helper if desired.

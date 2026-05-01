@@ -1,0 +1,24 @@
+Description: Validator add/remove via session boundary
+Network: ../zombienet.toml
+Creds: /tmp/zn-creds.cfg
+
+alice: is up within 60 seconds
+bob: is up within 60 seconds
+charlie: is up within 60 seconds
+dave: is up within 60 seconds
+
+# Wait until at least one full session has rotated so we observe a clean
+# transition rather than the genesis seam.
+alice: reports block height is at least 8 within 300 seconds
+
+# Lock Dave -> joins active set at next session -> appears in GRANDPA
+# authorities. Internal timeout is 600s.
+alice: js-script ../js-scripts/lock-and-join-dave.js return is 1 within 700 seconds
+
+# Confirm finality kept progressing across the authority change.
+alice: js-script ../js-scripts/check-finality-progress.js with "2" return is 1 within 180 seconds
+
+# Dave requests exit -> removed at next session -> finality keeps progressing.
+alice: js-script ../js-scripts/request-exit-dave.js return is 1 within 700 seconds
+
+alice: js-script ../js-scripts/check-finality-progress.js with "2" return is 1 within 180 seconds

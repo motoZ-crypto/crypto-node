@@ -1,0 +1,17 @@
+{
+  "name": "crypto-node-integration",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-node integration & zombienet harness for crypto-node.",
+  "scripts": {
+    "build:node": "bash scripts/build-node.sh",
+    "test:all": "bash scripts/run-all.sh",
+    "spawn": "zombienet spawn zombienet.toml"
+  },
+  "dependencies": {
+    "@polkadot/api": "^16.5.6",
+    "@polkadot/keyring": "^14.0.3",
+    "@polkadot/util": "^14.0.3",
+    "@polkadot/util-crypto": "^14.0.3"
+  }
+}

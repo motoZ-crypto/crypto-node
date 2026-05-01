@@ -103,6 +103,8 @@ std = [
 	"substrate-wasm-builder",
 ]
 
+test-runtime = []
+
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",

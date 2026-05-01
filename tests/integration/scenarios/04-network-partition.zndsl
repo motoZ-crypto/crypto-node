@@ -1,0 +1,25 @@
+Description: Single-validator isolation + recovery (partition simulated via process kill+restart)
+Network: ../zombienet.toml
+Creds: /tmp/zn-creds.cfg
+
+alice: is up within 60 seconds
+bob: is up within 60 seconds
+charlie: is up within 60 seconds
+dave: is up within 60 seconds
+eve: is up within 60 seconds
+
+alice: js-script ../js-scripts/check-finality-progress.js with "2" return is 1 within 360 seconds
+
+# === Partition simulation: take bob (1/3 of authorities) fully offline
+# for 60 seconds. We use `restart after N seconds` rather than
+# `pause`/`resume` because zombienet `pause` (SIGSTOP) only freezes the
+# process and keeps its TCP sockets open, so GRANDPA peers wait for
+# Bob's votes until round timeouts elapse and finality stalls. A real
+# process kill closes the sockets immediately and the remaining 2/3
+# weight ({alice,charlie}) keeps finalizing.
+bob: restart after 60 seconds
+
+# After bob is back, finality must keep progressing without forks. We
+# verify both convergence on canonical hash and continued advance.
+alice: js-script ../js-scripts/check-network-agreement.js return is 1 within 180 seconds
+alice: js-script ../js-scripts/check-finality-progress.js with "3" return is 1 within 360 seconds
