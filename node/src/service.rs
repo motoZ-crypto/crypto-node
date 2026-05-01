@@ -259,31 +259,24 @@ pub fn new_full<
 		protocol_name: grandpa_protocol_name,
 	};
 
-	if is_authority {
-		let grandpa_params = sc_consensus_grandpa::GrandpaParams {
-			config: grandpa_config,
-			link: grandpa_link,
-			network,
-			sync: Arc::new(sync_service.clone()),
-			voting_rule: sc_consensus_grandpa::VotingRulesBuilder::default().build(),
-			prometheus_registry: prometheus_registry.clone(),
-			shared_voter_state,
-			telemetry: telemetry.as_ref().map(|x| x.handle()),
-			offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool.clone()),
-			notification_service: grandpa_notification_service,
-		};
+	let grandpa_params = sc_consensus_grandpa::GrandpaParams {
+		config: grandpa_config,
+		link: grandpa_link,
+		network,
+		sync: Arc::new(sync_service.clone()),
+		voting_rule: sc_consensus_grandpa::VotingRulesBuilder::default().build(),
+		prometheus_registry: prometheus_registry.clone(),
+		shared_voter_state,
+		telemetry: telemetry.as_ref().map(|x| x.handle()),
+		offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool.clone()),
+		notification_service: grandpa_notification_service,
+	};
 
-		task_manager.spawn_essential_handle().spawn_blocking(
-			"grandpa-voter",
-			None,
-			sc_consensus_grandpa::run_grandpa_voter(grandpa_params)?,
-		);
-	} else {
-		// Non-validator nodes still need to participate in GRANDPA gossip for sync
-		// of justifications, so we drop the notification service handle. The protocol
-		// itself was registered via `add_notification_protocol` above.
-		drop(grandpa_notification_service);
-	}
+	task_manager.spawn_essential_handle().spawn_blocking(
+		if is_authority { "grandpa-voter" } else { "grandpa-observer" },
+		None,
+		sc_consensus_grandpa::run_grandpa_voter(grandpa_params)?,
+	);
 
 	if let Some(miner_address) = miner_account {
 		let proposer_factory = sc_basic_authorship::ProposerFactory::new(
