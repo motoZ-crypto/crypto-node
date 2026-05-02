@@ -629,6 +629,11 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
             }
         }
 
+        // Always commit the recomputed set to our own storage so that
+        // downstream checks (e.g. `lock`'s membership gate) see the truth,
+        // even when we hide an empty set from `pallet-session` below.
+        ActiveValidators::<T>::put(&next);
+
         if next == previous {
             return None;
         }
@@ -642,11 +647,11 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
         // validators have no lock anymore, so they will not actually vote;
         // GRANDPA finality stalls naturally while PoW keeps producing blocks
         // until a new validator locks and the next session boundary swaps
-        // the set in.
+        // the set in. Our own `ActiveValidators` storage was updated above
+        // so callers querying membership see the real state.
         if next.is_empty() && !previous.is_empty() {
             return None;
         }
-        ActiveValidators::<T>::put(&next);
         Some(next.into_inner())
     }
 
