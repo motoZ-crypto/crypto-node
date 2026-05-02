@@ -23,6 +23,23 @@ use frame_support::{
 use scale_info::TypeInfo;
 use sp_runtime::traits::{Saturating, Zero};
 
+/// Runtime adapter that lets `pallet-validator` query the session-key registry
+/// without taking a hard dependency on `pallet-session`.
+///
+/// In production runtimes this is implemented over `pallet-session`; tests
+/// use the no-op `()` implementation below.
+pub trait SessionInterface<AccountId> {
+    /// Whether `who` has session keys registered. Required so a candidate
+    /// cannot be promoted to the active set without an authoring identity.
+    fn has_keys(who: &AccountId) -> bool;
+}
+
+impl<AccountId> SessionInterface<AccountId> for () {
+    fn has_keys(_who: &AccountId) -> bool {
+        true
+    }
+}
+
 /// Balance type alias derived from the configured `Currency`.
 pub type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
@@ -54,7 +71,7 @@ pub mod pallet {
     use super::*;
     use frame_support::{
         pallet_prelude::*,
-        traits::{LockIdentifier, WithdrawReasons},
+        traits::{Defensive, LockIdentifier, WithdrawReasons},
     };
     use frame_system::pallet_prelude::*;
 
@@ -65,6 +82,11 @@ pub mod pallet {
     pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
         /// Currency used for validator stake locking.
         type Currency: LockableCurrency<Self::AccountId, Moment = BlockNumberFor<Self>>;
+
+        /// Adapter that bridges to the runtime's session-key registry. Used
+        /// by `lock` to verify that a candidate has registered keys before
+        /// they are queued for promotion.
+        type SessionInterface: SessionInterface<Self::AccountId>;
 
         /// Amount to lock when registering as a validator.
         #[pallet::constant]
@@ -234,6 +256,8 @@ pub mod pallet {
         InsufficientBalance,
         /// The pending validator queue is full.
         TooManyValidators,
+        /// Caller has not registered session keys.
+        SessionKeysNotRegistered,
     }
 
     #[pallet::hooks]
@@ -307,7 +331,22 @@ pub mod pallet {
         pub fn lock(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-			ensure!(!ValidatorLocks::<T>::contains_key(&who), Error::<T>::AlreadyValidator);
+            ensure!(
+                !ValidatorLocks::<T>::contains_key(&who),
+                Error::<T>::AlreadyValidator,
+            );
+
+            let active_len = ActiveValidators::<T>::get().len() as u32;
+            let pending_len = PendingValidators::<T>::get().len() as u32;
+            ensure!(
+                active_len.saturating_add(pending_len) < T::MaxValidators::get(),
+                Error::<T>::TooManyValidators,
+            );
+
+            ensure!(
+                T::SessionInterface::has_keys(&who),
+                Error::<T>::SessionKeysNotRegistered,
+            );
 
             let now = frame_system::Pallet::<T>::block_number();
             if let Some(deadline) = RejoinCooldown::<T>::get(&who) {
@@ -327,18 +366,18 @@ pub mod pallet {
 
             let expiry_block = now.saturating_add(duration);
 
-            PendingValidators::<T>::try_mutate(|queue| -> DispatchResult {
-                ensure!(
-                    !queue.iter().any(|a| a == &who),
-                    Error::<T>::AlreadyValidator
-                );
-                queue
+            PendingValidators::<T>::mutate(|queue| {
+                let _ = queue
                     .try_push(who.clone())
-                    .map_err(|_| Error::<T>::TooManyValidators)?;
-                Ok(())
-            })?;
+                    .defensive_proof("preflight ensures active+pending < MaxValidators");
+            });
 
-            T::Currency::set_lock(T::LockId::get(), &who, amount, WithdrawReasons::all());
+            T::Currency::set_lock(
+                T::LockId::get(),
+                &who,
+                amount,
+                WithdrawReasons::all(),
+            );
 
             ValidatorLocks::<T>::insert(
                 &who,
@@ -567,8 +606,23 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
             if !is_active(&who) || next.iter().any(|a| a == &who) {
                 continue;
             }
+            // Defensive depth: `lock` already enforces `has_keys`, but a
+            // candidate could in principle have called `session.purge_keys`
+            // between locking and this session boundary. Drop them rather
+            // than promote an account with default (zero) keys.
+            if !T::SessionInterface::has_keys(&who) {
+                log::warn!(
+                    target: LOG_TARGET,
+                    "skipping pending validator without session keys at session boundary",
+                );
+                continue;
+            }
             if next.try_push(who).is_err() {
-                // Bounded by `MaxValidators`; remaining entries stay dropped this session.
+                // Bounded by `MaxValidators`; remaining entries stay dropped this session. 
+                log::warn!(
+                    target: LOG_TARGET,
+                    "MaxValidators reached at session boundary; dropping remaining pending validators",
+                );
                 break;
             }
         }
