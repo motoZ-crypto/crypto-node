@@ -331,13 +331,15 @@ pub mod pallet {
         pub fn lock(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
+            let active = ActiveValidators::<T>::get();
+            let pending = PendingValidators::<T>::get();
             ensure!(
-                !ValidatorLocks::<T>::contains_key(&who),
+                !active.iter().any(|a| a == &who) && !pending.iter().any(|a| a == &who),
                 Error::<T>::AlreadyValidator,
             );
 
-            let active_len = ActiveValidators::<T>::get().len() as u32;
-            let pending_len = PendingValidators::<T>::get().len() as u32;
+            let active_len = active.len() as u32;
+            let pending_len = pending.len() as u32;
             ensure!(
                 active_len.saturating_add(pending_len) < T::MaxValidators::get(),
                 Error::<T>::TooManyValidators,
