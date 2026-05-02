@@ -232,6 +232,7 @@ parameter_types! {
 
 impl pallet_validator::Config for Runtime {
 	type Currency = Balances;
+	type SessionInterface = ValidatorSessionAdapter;
 	type LockAmount = ConstU128<{ 1_000 * UNIT }>;
 	type LockDuration = ConstU32<{ 1 * DAYS }>;
 	type LockId = ValidatorLockId;
@@ -239,6 +240,16 @@ impl pallet_validator::Config for Runtime {
 	type RenewInterval = ConstU32<{ 1 * DAYS }>;
 	type OfflineThreshold = ConstU32<1>;
 	type RejoinCooldownPeriod = ConstU32<{ 1 * DAYS }>;
+}
+
+/// Adapter wiring `pallet_validator::SessionInterface` to `pallet-session`.
+/// Lets validator verify session keys exist before queuing a candidate.
+pub struct ValidatorSessionAdapter;
+
+impl pallet_validator::SessionInterface<AccountId> for ValidatorSessionAdapter {
+	fn has_keys(who: &AccountId) -> bool {
+		pallet_session::NextKeys::<Runtime>::contains_key(who)
+	}
 }
 
 /// `ValidatorSetWithIdentification` adapter over `pallet-session`.

@@ -382,15 +382,13 @@ fn new_session_drops_validator_with_released_lock() {
         run_to_block(11);
         assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
 
-        // Empty-set fallback (decision: `.dev/issues/issue-037`): when the
-        // computed next set would be empty we return `None` and retain the
-        // previous authority set on-chain so downstream consumers
-        // (`pallet-grandpa`, `pallet-im-online`) do not receive an empty
-        // authority list. GRANDPA finality stalls naturally because the
-        // retained validators no longer hold valid locks; PoW keeps producing
-        // blocks until a new validator locks.
+        // Empty-set fallback: we return `None` so `pallet-session` retains
+        // its cached authority set (preventing GRANDPA brick), but our own
+        // `ActiveValidators` storage reflects the truth (now empty) so
+        // downstream membership checks (e.g. `lock`'s rejoin gate) see the
+        // real state.
         assert!(<Validator as SessionManager<AccountId>>::new_session(2).is_none());
-        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE]);
+        assert!(ActiveValidators::<Test>::get().is_empty());
     });
 }
 
@@ -418,9 +416,11 @@ fn empty_set_fallback_keeps_previous_authorities_after_mass_kick() {
             ValidatorStatus::Kicked
         );
 
-        // Empty-set fallback must retain the previous active set.
+        // Empty-set fallback: returning `None` keeps `pallet-session`'s
+        // authority set intact, while our own `ActiveValidators` storage is
+        // updated to the empty truth.
         assert!(<Validator as SessionManager<AccountId>>::new_session(2).is_none());
-        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
+        assert!(ActiveValidators::<Test>::get().is_empty());
     });
 }
 
@@ -554,6 +554,76 @@ fn lock_blocked_during_cooldown_then_succeeds() {
         assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
         let lock = ValidatorLocks::<Test>::get(ALICE).expect("relock recorded");
         assert_eq!(lock.status, ValidatorStatus::Active);
+    });
+}
+
+#[test]
+fn relock_after_request_exit_refreshes_lock_and_status() {
+    new_test_ext().execute_with(|| {
+        // Initial lock at block 1.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        let _ = <Validator as SessionManager<AccountId>>::new_session(1);
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE]);
+        let initial = ValidatorLocks::<Test>::get(ALICE).expect("locked");
+        let initial_expiry = initial.expiry_block;
+
+        // Voluntary exit; lock entry stays but status flips.
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(
+            ValidatorLocks::<Test>::get(ALICE).unwrap().status,
+            ValidatorStatus::ExitRequested,
+        );
+
+        // Next session removes ALICE from the active set (our own
+        // `ActiveValidators` storage reflects the truth).
+        let _ = <Validator as SessionManager<AccountId>>::new_session(2);
+        assert!(ActiveValidators::<Test>::get().is_empty());
+        assert!(PendingValidators::<Test>::get().is_empty());
+        // The currency lock is still in place; `ValidatorLocks` still exists.
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_some());
+
+        // Advance a few blocks but do NOT let the lock expire.
+        run_to_block(5);
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_some());
+
+        // Re-lock now that ALICE is neither active nor pending. The new
+        // lock overwrites the old one: status flips back to Active and
+        // `expiry_block` is refreshed to `now + LockDuration`.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        let refreshed = ValidatorLocks::<Test>::get(ALICE).expect("relocked");
+        assert_eq!(refreshed.status, ValidatorStatus::Active);
+        assert!(refreshed.expiry_block > initial_expiry);
+        assert_eq!(refreshed.lock_block, System::block_number());
+        // ALICE is back in the pending queue ready for next promotion.
+        assert!(PendingValidators::<Test>::get().contains(&ALICE));
+    });
+}
+
+#[test]
+fn lock_rejected_while_pending() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        // ALICE is in PendingValidators but not yet active. A second lock
+        // call must be rejected.
+        assert!(PendingValidators::<Test>::get().contains(&ALICE));
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::AlreadyValidator,
+        );
+    });
+}
+
+#[test]
+fn lock_rejected_while_active() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        let _ = <Validator as SessionManager<AccountId>>::new_session(1);
+        assert!(ActiveValidators::<Test>::get().contains(&ALICE));
+        assert!(!PendingValidators::<Test>::get().contains(&ALICE));
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::AlreadyValidator,
+        );
     });
 }
 

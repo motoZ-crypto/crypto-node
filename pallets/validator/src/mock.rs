@@ -68,6 +68,7 @@ parameter_types! {
 
 impl pallet_validator::Config for Test {
 	type Currency = Balances;
+	type SessionInterface = ();
 	type LockAmount = ConstU128<1_000>;
 	type LockDuration = ConstU64<10>;
 	type LockId = TestLockId;
