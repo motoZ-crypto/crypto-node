@@ -107,8 +107,10 @@ runtime-benchmarks = [
 	"solochain-template-runtime/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
-# Enable features that allow the runtime to be tried and debugged. Name might be subject to change
-# in the near future.
+# Enable features for providing test values.
+test-runtime = ["solochain-template-runtime/test-runtime"]
+# Enable features that allow the runtime to be tried and debugged.
+# Name might be subject to change in the near future.
 try-runtime = [
 	"frame-system/try-runtime",
 	"pallet-transaction-payment/try-runtime",

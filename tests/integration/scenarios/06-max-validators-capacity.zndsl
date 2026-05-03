@@ -1,0 +1,22 @@
+Description: MaxValidators capacity rejection (TooManyValidators)
+Network: ../zombienet.toml
+Creds: /tmp/zn-creds.cfg
+
+alice: is up within 60 seconds
+bob: is up within 60 seconds
+charlie: is up within 60 seconds
+dave: is up within 60 seconds
+eve: is up within 60 seconds
+
+# Wait for clean session boundary so we are not mid-rotation.
+alice: reports block height is at least 8 within 300 seconds
+
+# Lock Dave -> joins active set as the 4th validator -> active = MaxValidators (4).
+# Dave's session keys are pre-registered at genesis (see integration_config_genesis).
+alice: js-script ../js-scripts/lock-and-join-dave.js return is 1 within 700 seconds
+
+# Now try to lock Eve. The active set is full (4 of 4) and Eve is not yet
+# a validator. The pallet checks capacity BEFORE session-keys, so Eve
+# does not need to call session.set_keys first — we expect the
+# `validator.TooManyValidators` error directly.
+alice: js-script ../js-scripts/lock-eve-expect-too-many.js return is 1 within 120 seconds

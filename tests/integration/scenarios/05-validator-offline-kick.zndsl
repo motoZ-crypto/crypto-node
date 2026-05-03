@@ -1,0 +1,37 @@
+Description: Validator goes offline (no heartbeat) and gets kicked + put into RejoinCooldown
+Network: ../zombienet.toml
+Creds: /tmp/zn-creds.cfg
+
+alice: is up within 60 seconds
+bob: is up within 60 seconds
+charlie: is up within 60 seconds
+
+# Establish baseline finality so we know the ImOnline pipeline is healthy
+# before we knock a validator offline.
+alice: js-script ../js-scripts/check-finality-progress.js with "2" return is 1 within 360 seconds
+
+# Pause Bob. Because Bob's `imon` private key only lives in Bob's keystore
+# (--bob loads it locally), no other node can spoof Bob's heartbeats;
+# ImOnline will see no heartbeat from Bob and mark him unresponsive.
+bob: pause
+
+# Wait for the full pipeline:
+#   end-of-session-N    -> imOnline.SomeOffline { offline: [Bob] } -> note_offline
+#   end-of-session-N+1  -> process_offline_counters kicks Bob (threshold=1)
+#   end-of-session-N+2  -> Bob removed from session.validators
+# With test-runtime SessionPeriod = 3 min and PoW target 20s, this takes
+# ~4-8 minutes. The js-script polls with its own 8-min cap.
+alice: js-script ../js-scripts/wait-for-offline-kick.js with "//Bob" return is 1 within 600 seconds
+
+# Resume Bob BEFORE asserting on finality. While Bob's process was paused
+# its TCP sockets stayed open, so even after he is kicked from the active
+# validator set the surviving nodes may keep retrying gossip to him until
+# round timeouts elapse (zombienet `pause` does not simulate a real
+# disconnect; see SKILL.md "3-validator GRANDPA pitfall"). Bringing his
+# process back closes the freeze and lets GRANDPA progress promptly.
+bob: resume
+
+# After Bob is kicked the chain has 2 active validators (alice, charlie),
+# which is enough for GRANDPA finality (2/3 quorum on 2 = 2 > 1). Confirm
+# finality keeps progressing on the reduced set.
+alice: js-script ../js-scripts/check-finality-progress.js with "2" return is 1 within 360 seconds

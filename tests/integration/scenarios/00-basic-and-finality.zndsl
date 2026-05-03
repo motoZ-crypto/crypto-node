@@ -1,0 +1,31 @@
+Description: Basic startup, PoW production, GRANDPA finality, and fork-choice respects finality
+Network: ../zombienet.toml
+Creds: /tmp/zn-creds.cfg
+
+# === PoW production & propagation ===
+
+alice: is up within 60 seconds
+bob: is up within 60 seconds
+charlie: is up within 60 seconds
+dave: is up within 60 seconds
+eve: is up within 60 seconds
+
+alice: reports peers count is at least 4 within 180 seconds
+
+# Wait for at least 6 PoW blocks then verify every node agrees on the
+# canonical hash at the lowest common height.
+alice: reports block height is at least 6 within 240 seconds
+bob: reports block height is at least 4 within 300 seconds
+charlie: reports block height is at least 4 within 300 seconds
+dave: reports block height is at least 4 within 300 seconds
+eve: reports block height is at least 4 within 300 seconds
+
+alice: js-script ../js-scripts/check-network-agreement.js return is 1 within 60 seconds
+
+# === GRANDPA voting & finalization ===
+
+alice: js-script ../js-scripts/check-finality-progress.js with "4" return is 1 within 360 seconds
+
+# === Fork-choice respects finality invariant ===
+
+alice: js-script ../js-scripts/check-fork-finality.js return is 1 within 60 seconds

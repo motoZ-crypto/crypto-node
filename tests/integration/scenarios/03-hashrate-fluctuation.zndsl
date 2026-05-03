@@ -1,0 +1,30 @@
+Description: Hashrate fluctuation -> ASERT difficulty decay -> recovery
+Network: ../zombienet.toml
+Creds: /tmp/zn-creds.cfg
+
+alice: is up within 60 seconds
+bob: is up within 60 seconds
+charlie: is up within 60 seconds
+dave: is up within 60 seconds
+
+# Long warm-up so the ASERT controller has time to climb to a difficulty
+# that throttles the combined 4-miner hashrate near the 20s target. With
+# the test-runtime Halflife (60s) the controller responds in ~5 minutes.
+# Pausing miners earlier than this leaves the surviving miner under-loaded
+# and ASERT keeps raising difficulty instead of dropping it.
+alice: reports block height is at least 60 within 900 seconds
+
+# Kill 3 of 4 miners (bob, charlie, dave). Only alice mines, so observed
+# block time becomes ~4x the target -> ASERT must lower difficulty and
+# block production must continue.
+bob: pause
+charlie: pause
+dave: pause
+
+alice: js-script ../js-scripts/check-difficulty-drop.js return is 1 within 360 seconds
+
+# Bring the miners back; finality should resume promptly.
+bob: resume
+charlie: resume
+dave: resume
+alice: js-script ../js-scripts/check-finality-progress.js with "3" return is 1 within 360 seconds

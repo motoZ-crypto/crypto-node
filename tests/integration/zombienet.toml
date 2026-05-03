@@ -1,0 +1,48 @@
+[settings]
+# Generous default for any "within X seconds" assertion. PoW target is 20s
+# so 600s gives us ~30 blocks of slack.
+timeout = 1000
+provider = "native"
+
+[relaychain]
+chain = "integration"
+chain_spec_path = "integration-raw.json"
+default_command = "../../target/release/solochain-template-node"
+default_args = [
+    "-l=info,sub-libp2p=warn,libp2p_swarm=warn,grandpa=debug,runtime::session=debug,pallet_session=debug",
+]
+
+# === Initial validators (run a miner each so block production stays even). ===
+
+[[relaychain.nodes]]
+  name = "alice"
+  validator = true
+  bootnode = true
+  args = ["--alice", "--miner", "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"]
+
+[[relaychain.nodes]]
+  name = "bob"
+  validator = true
+  args = ["--bob", "--miner", "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"]
+
+[[relaychain.nodes]]
+  name = "charlie"
+  validator = true
+  args = ["--charlie", "--miner", "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y"]
+
+# === Standby account: not an initial validator. Mines so the txpool sees its
+# `validator.lock()` extrinsic, then joins the active set after one session
+# rotation. Used by the validator-join / validator-exit scenarios. ===
+
+[[relaychain.nodes]]
+  name = "dave"
+  validator = false
+  args = ["--dave", "--miner", "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy"]
+
+# === Pure observer node, no mining, no validating. Used to confirm
+# block/finalized hash convergence on a node that authored nothing. ===
+
+[[relaychain.nodes]]
+  name = "eve"
+  validator = false
+  args = ["--eve"]

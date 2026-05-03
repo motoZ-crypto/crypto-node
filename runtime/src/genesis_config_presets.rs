@@ -33,11 +33,29 @@ fn testnet_genesis(
 	root: AccountId,
 	initial_validators: Vec<(AccountId, GrandpaId, ImOnlineId)>,
 ) -> Value {
+	testnet_genesis_with_extra_keys(endowed_accounts, root, initial_validators, Vec::new())
+}
+
+fn testnet_genesis_with_extra_keys(
+	endowed_accounts: Vec<AccountId>,
+	root: AccountId,
+	initial_validators: Vec<(AccountId, GrandpaId, ImOnlineId)>,
+	extra_session_keys: Vec<(AccountId, GrandpaId, ImOnlineId)>,
+) -> Value {
 	let total_supply: u128 = 1_000_000_000 * UNIT;
 	let balance_per_account = total_supply / endowed_accounts.len() as u128;
 	let initial_difficulty = U256::from(1_000_000u64);
 	let validator_accounts: Vec<AccountId> =
 		initial_validators.iter().map(|(a, _, _)| a.clone()).collect();
+	let mut session_keys: Vec<(AccountId, AccountId, SessionKeys)> = initial_validators
+		.into_iter()
+		.map(|(account, grandpa, im_online)| {
+			(account.clone(), account, SessionKeys { grandpa, im_online })
+		})
+		.collect();
+	for (account, grandpa, im_online) in extra_session_keys.into_iter() {
+		session_keys.push((account.clone(), account, SessionKeys { grandpa, im_online }));
+	}
 	build_struct_json_patch!(RuntimeGenesisConfig {
 		balances: BalancesConfig {
 			balances: endowed_accounts
@@ -53,14 +71,7 @@ fn testnet_genesis(
 			anchor_timestamp: 0,
 			anchor_height: 0,
 		},
-		session: SessionConfig {
-			keys: initial_validators
-				.into_iter()
-				.map(|(account, grandpa, im_online)| {
-					(account.clone(), account, SessionKeys { grandpa, im_online })
-				})
-				.collect::<Vec<_>>(),
-		},
+		session: SessionConfig { keys: session_keys },
 		validator: ValidatorConfig {
 			initial_validators: validator_accounts,
 			..Default::default()
@@ -134,11 +145,62 @@ pub fn local_config_genesis() -> Value {
 	)
 }
 
+pub fn integration_config_genesis() -> Value {
+	testnet_genesis_with_extra_keys(
+		vec![
+			Sr25519Keyring::Alice.to_account_id(),
+			Sr25519Keyring::Bob.to_account_id(),
+			Sr25519Keyring::Charlie.to_account_id(),
+			Sr25519Keyring::Dave.to_account_id(),
+			Sr25519Keyring::Eve.to_account_id(),
+			Sr25519Keyring::Ferdie.to_account_id(),
+			Sr25519Keyring::AliceStash.to_account_id(),
+			Sr25519Keyring::BobStash.to_account_id(),
+		],
+		Sr25519Keyring::Alice.to_account_id(),
+		vec![
+			(
+				Sr25519Keyring::Alice.to_account_id(),
+				Ed25519Keyring::Alice.public().into(),
+				im_online_from_keyring(Sr25519Keyring::Alice),
+			),
+			(
+				Sr25519Keyring::Bob.to_account_id(),
+				Ed25519Keyring::Bob.public().into(),
+				im_online_from_keyring(Sr25519Keyring::Bob),
+			),
+			(
+				Sr25519Keyring::Charlie.to_account_id(),
+				Ed25519Keyring::Charlie.public().into(),
+				im_online_from_keyring(Sr25519Keyring::Charlie),
+			),
+		],
+		// Pre-register session keys for Dave and Eve so they can be
+		// promoted to active validators at runtime via `validator.lock()`
+		// without first calling `session.set_keys()`.
+		vec![
+			(
+				Sr25519Keyring::Dave.to_account_id(),
+				Ed25519Keyring::Dave.public().into(),
+				im_online_from_keyring(Sr25519Keyring::Dave),
+			),
+			(
+				Sr25519Keyring::Eve.to_account_id(),
+				Ed25519Keyring::Eve.public().into(),
+				im_online_from_keyring(Sr25519Keyring::Eve),
+			),
+		],
+	)
+}
+
+pub const INTEGRATION_RUNTIME_PRESET: &str = "integration";
+
 /// Provides the JSON representation of predefined genesis config for given `id`.
 pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 	let patch = match id.as_ref() {
 		sp_genesis_builder::DEV_RUNTIME_PRESET => development_config_genesis(),
 		sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET => local_config_genesis(),
+		INTEGRATION_RUNTIME_PRESET => integration_config_genesis(),
 		_ => return None,
 	};
 	Some(
@@ -153,5 +215,6 @@ pub fn preset_names() -> Vec<PresetId> {
 	vec![
 		PresetId::from(sp_genesis_builder::DEV_RUNTIME_PRESET),
 		PresetId::from(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET),
+		PresetId::from(INTEGRATION_RUNTIME_PRESET),
 	]
 }
