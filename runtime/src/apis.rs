@@ -251,7 +251,7 @@ impl_runtime_apis! {
 	}
 
 	impl pallet_difficulty::DifficultyApi<Block> for Runtime {
-		fn anchor_params() -> (U256, u64, u32, u64, u64) {
+		fn anchor_params() -> (U256, u64, u64, u64, u64) {
 			(
 				pallet_difficulty::AnchorTarget::<Runtime>::get(),
 				pallet_difficulty::AnchorTimestamp::<Runtime>::get(),
