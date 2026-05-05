@@ -12,9 +12,9 @@
 use sp_core::U256;
 
 /// Fixed-point fractional bits.
-const FRAC_BITS: i64 = 16;
+const FRAC_BITS: i128 = 16;
 /// 1.0 in fixed-point representation.
-const FRAC_ONE: i64 = 1 << FRAC_BITS; // 65536
+const FRAC_ONE: i128 = 1 << FRAC_BITS; // 65536
 
 /// Compute the ASERT next target from anchor block parameters.
 ///
@@ -31,18 +31,18 @@ const FRAC_ONE: i64 = 1 << FRAC_BITS; // 65536
 /// The computed next target (U256), clamped to [1, U256::MAX].
 pub fn compute_next_target(
 	anchor_target: U256,
-	time_delta: i64,
-	height_delta: u32,
+	time_delta: i128,
+	height_delta: u64,
 	target_block_time: u64,
 	halflife: u64,
 ) -> U256 {
 	// exponent = (time_delta - target_block_time * height_delta) / halflife
 	// In fixed-point: exponent_fp = ((time_delta - ideal_time) << FRAC_BITS) / halflife
-	let ideal_time = target_block_time as i64 * height_delta as i64;
+	let ideal_time = target_block_time as i128 * height_delta as i128;
 	let exponent_numer = (time_delta - ideal_time) * FRAC_ONE;
-	let halflife_i64 = halflife as i64;
+	let halflife_i128 = halflife as i128;
 	// Division rounds toward zero; this is acceptable for the exponent.
-	let exponent_fp = exponent_numer / halflife_i64;
+	let exponent_fp = exponent_numer / halflife_i128;
 
 	// Compute 2^exponent_fp in fixed-point.
 	// Split into integer part and fractional part.
@@ -64,9 +64,9 @@ pub fn compute_next_target(
 	//   a1 = ln(2) ≈ 0.693147 → 45426
 	//   a2 = ln(2)^2/2 ≈ 0.240227 → 15736
 	//   a3 = ln(2)^3/6 ≈ 0.055504 → 3638 (rounded from 3637.7)
-	const A1: i64 = 45426;
-	const A2: i64 = 15736;
-	const A3: i64 = 3638;
+	const A1: i128 = 45426;
+	const A2: i128 = 15736;
+	const A3: i128 = 3638;
 
 	// frac_part is in [0, FRAC_ONE), compute polynomial in fixed-point.
 	let x = frac_part;
@@ -78,18 +78,18 @@ pub fn compute_next_target(
 
 	// Now: next_target = anchor_target * frac_factor / FRAC_ONE * 2^int_part
 	// Apply the fractional multiplier first (to preserve precision).
-	let frac_factor_u256 = U256::from(frac_factor as u64);
-	let frac_one_u256 = U256::from(FRAC_ONE as u64);
+	let frac_factor_u256 = U256::from(frac_factor as u128);
+	let frac_one_u256 = U256::from(FRAC_ONE as u128);
 
 	let mut result = anchor_target * frac_factor_u256 / frac_one_u256;
 
 	// Apply integer exponent: shift left for positive, shift right for negative.
 	if int_part >= 0 {
-		let shift = int_part as u32;
-		if shift >= 256 {
+		if int_part >= 256 {
 			// Overflow — target is astronomically high, clamp to max.
 			return U256::MAX;
 		}
+		let shift = int_part as u32;
 		// Check for overflow: if result has bits set in positions >= (256 - shift),
 		// the shift would overflow.
 		let headroom = 256 - result.bits();
@@ -98,11 +98,11 @@ pub fn compute_next_target(
 		}
 		result = result << shift;
 	} else {
-		let shift = (-int_part) as u32;
-		if shift >= 256 {
+		if int_part <= -256 {
 			// Underflow — clamp to minimum target of 1.
 			return U256::one();
 		}
+		let shift = (-int_part) as u32;
 		result = result >> shift;
 	}
 

@@ -24,7 +24,7 @@ sp_api::decl_runtime_apis! {
 	pub trait DifficultyApi {
 		/// Returns (anchor_target, anchor_timestamp_secs, anchor_height,
 		/// target_block_time, halflife).
-		fn anchor_params() -> (sp_core::U256, u64, u32, u64, u64);
+		fn anchor_params() -> (sp_core::U256, u64, u64, u64, u64);
 
 		/// Compute difficulty given an external timestamp (seconds since
 		/// Unix epoch).  This allows the caller to supply the current
@@ -86,7 +86,7 @@ pub mod pallet {
 	/// Block height of the anchor block.
 	#[pallet::storage]
 	#[pallet::getter(fn anchor_height)]
-	pub type AnchorHeight<T: Config> = StorageValue<_, u32, ValueQuery>;
+	pub type AnchorHeight<T: Config> = StorageValue<_, u64, ValueQuery>;
 
 	/// Timestamp of the most recently finalized block (seconds).
 	///
@@ -106,7 +106,7 @@ pub mod pallet {
 		/// Anchor timestamp (seconds). Typically 0 for genesis.
 		pub anchor_timestamp: u64,
 		/// Anchor block height. Typically 0 for genesis.
-		pub anchor_height: u32,
+		pub anchor_height: u64,
 		#[serde(skip)]
 		pub _marker: core::marker::PhantomData<T>,
 	}
@@ -153,9 +153,9 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_finalize(_n: BlockNumberFor<T>) {
-			let current_height: u32 = frame_system::Pallet::<T>::block_number()
+			let current_height: u64 = frame_system::Pallet::<T>::block_number()
 				.try_into()
-				.unwrap_or(u32::MAX);
+				.unwrap_or(u64::MAX);
 
 			// Timestamp is in milliseconds; convert to seconds.
 			// In on_finalize the timestamp inherent has already executed,
@@ -186,9 +186,9 @@ pub mod pallet {
 			let height_delta = current_height.saturating_sub(anchor_height);
 
 			let time_delta = if now_secs >= anchor_ts {
-				(now_secs - anchor_ts) as i64
+				(now_secs - anchor_ts) as i128
 			} else {
-				-((anchor_ts - now_secs) as i64)
+				-((anchor_ts - now_secs) as i128)
 			};
 
 			let anchor_target = AnchorTarget::<T>::get();
@@ -254,9 +254,9 @@ impl<T: pallet::Config> Pallet<T> {
 	/// When `now_secs` is the current system time, this returns the
 	/// difficulty that naturally decays even if no blocks are produced.
 	pub fn realtime_difficulty(now_secs: u64) -> U256 {
-		let current_height: u32 = frame_system::Pallet::<T>::block_number()
+		let current_height: u64 = frame_system::Pallet::<T>::block_number()
 			.try_into()
-			.unwrap_or(u32::MAX);
+			.unwrap_or(u64::MAX);
 		let next_height = current_height.saturating_add(1);
 		let anchor_height = AnchorHeight::<T>::get();
 
@@ -272,9 +272,9 @@ impl<T: pallet::Config> Pallet<T> {
 		}
 
 		let time_delta = if now_secs >= anchor_ts {
-			(now_secs - anchor_ts) as i64
+			(now_secs - anchor_ts) as i128
 		} else {
-			-((anchor_ts - now_secs) as i64)
+			-((anchor_ts - now_secs) as i128)
 		};
 
 		let anchor_target = AnchorTarget::<T>::get();
