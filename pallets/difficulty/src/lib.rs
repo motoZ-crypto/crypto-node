@@ -205,12 +205,7 @@ pub mod pallet {
 				T::Halflife::get(),
 			);
 
-			// difficulty = U256::MAX / target
-			let new_difficulty = if next_target == U256::MAX {
-				U256::one()
-			} else {
-				U256::MAX / next_target
-			};
+			let new_difficulty = U256::MAX / next_target;
 
 			CurrentDifficulty::<T>::put(new_difficulty);
 
@@ -290,10 +285,6 @@ impl<T: pallet::Config> Pallet<T> {
 			T::Halflife::get(),
 		);
 
-		if next_target == U256::MAX {
-			U256::one()
-		} else {
-			U256::MAX / next_target
-		}
+		U256::MAX / next_target
 	}
 }
