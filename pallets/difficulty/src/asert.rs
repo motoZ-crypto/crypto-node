@@ -113,3 +113,56 @@ pub fn compute_next_target(
 		result
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// If blocks are exactly on schedule, target should equal anchor_target.
+	#[test]
+	fn on_schedule_keeps_anchor() {
+		let anchor = U256::from(1_000_000u64);
+		// height_delta=10 (10th block after anchor), time_delta = target * 10
+		let result = compute_next_target(anchor, 200, 10, 20, 1800);
+		assert!(anchor == result, "expected ~anchor, got {:?}", result);
+	}
+
+	/// Blocks coming slower than expected -> target increases (difficulty decreases).
+	#[test]
+	fn slow_blocks_increase_target() {
+		let anchor = U256::from(1_000_000u64);
+		// height_delta=10, ideal time = target*10, actual time = 2*target*10 (twice as slow)
+		let result = compute_next_target(anchor, 400, 10, 20, 1800);
+		assert!(result > anchor, "slow blocks should increase target");
+	}
+
+	/// Blocks coming faster than expected → target decreases (difficulty increases).
+	#[test]
+	fn fast_blocks_decrease_target() {
+		let anchor = U256::from(1_000_000u64);
+		// height_delta=10, ideal time = 200s, actual time = 100s (twice as fast)
+		let result = compute_next_target(anchor, 100, 10, 20, 1800);
+		assert!(result < anchor, "fast blocks should decrease target");
+	}
+
+	/// If blocks arrive halflife seconds ahead of schedule, target should halve.
+	#[test]
+	fn target_doubles_after_halflife() {
+		let anchor = U256::from(1_000_000u64);
+		// For target to double (halflife behind schedule):
+		// exponent = +1 → time_delta - 20*1 = 1800 → time_delta = 1820
+		// height_delta=1 (one block after anchor)
+		let result = compute_next_target(anchor, 1820, 1, 20, 1800);
+		let expected = anchor + anchor;
+		assert!(expected == result, "expected ~{:?}, got {:?}", expected, result);
+	}
+
+	/// Even with extremely fast blocks, target should not be zero.
+	#[test]
+	fn target_never_zero() {
+		let anchor = U256::from(1u64);
+		let result = compute_next_target(anchor, 0, u64::MAX, 1, 1);
+		assert!(!result.is_zero(), "target must never be zero");
+	}
+	
+}
