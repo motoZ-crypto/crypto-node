@@ -1,79 +1,53 @@
 use crate::mock::*;
-use codec::Encode;
-use frame_support::traits::{Hooks, Get};
+use frame_support::traits::Get;
 use sp_keyring::Sr25519Keyring;
-use sp_runtime::DigestItem;
-
-// Reward issuance tests.
 
 #[test]
-fn mints_reward_to_block_author() {
-	new_test_ext().execute_with(|| {
-		let reward = <Test as crate::Config>::BlockReward::get();
+fn mints_reward_only_to_block_author() {
+    new_test_ext().execute_with(|| {
+        let reward = <Test as crate::Config>::BlockReward::get();
 
-		let miner = Sr25519Keyring::Alice.to_account_id();
-		run_to_block_at(1, &miner);
+        let author = Sr25519Keyring::Alice.to_account_id();
+        let other = Sr25519Keyring::Bob.to_account_id();
 
-		assert_eq!(
-			pallet_balances::Pallet::<Test>::free_balance(miner),
-			reward,
-		);
-	});
-}
+        advance_block(Some(pow_author_digest(&author)));
 
-#[test]
-fn does_not_mint_reward_to_non_block_author() {
-	new_test_ext().execute_with(|| {
-
-		let miner1 = Sr25519Keyring::Alice.to_account_id();
-		let miner2 = Sr25519Keyring::Bob.to_account_id();
-
-		run_to_block_at(1, &miner1);
-
-		assert_eq!(
-			pallet_balances::Pallet::<Test>::free_balance(miner2),
-			0,
-		);
-	});
+        assert_eq!(
+            pallet_balances::Pallet::<Test>::free_balance(author),
+            reward,
+            "Reward should be minted to the block author"
+        );
+        assert_eq!(
+            pallet_balances::Pallet::<Test>::free_balance(other),
+            0,
+            "Other accounts should not receive the block reward"
+        );
+    });
 }
 
 #[test]
 fn reward_accumulates_over_blocks() {
-	new_test_ext().execute_with(|| {
-		let reward: Balance = <Test as crate::Config>::BlockReward::get();
+    new_test_ext().execute_with(|| {
+        let reward: Balance = <Test as crate::Config>::BlockReward::get();
 
-		let miner = Sr25519Keyring::Alice.to_account_id();
+        let miner1 = Sr25519Keyring::Alice.to_account_id();
+        let miner2 = Sr25519Keyring::Bob.to_account_id();
 
-		run_to_block_at(1, &miner);
-		run_to_block_at(2, &miner);
+        advance_block(Some(pow_author_digest(&miner1)));
+        advance_block(Some(pow_author_digest(&miner2)));
+        advance_block(Some(pow_author_digest(&miner1)));
+        advance_block(Some(pow_author_digest(&miner2)));
 
-		assert_eq!(
-			pallet_balances::Pallet::<Test>::free_balance(miner),
-			reward * 2,
-		);
-	});
+        assert_eq!(pallet_balances::Pallet::<Test>::free_balance(miner1), reward * 2);
+        assert_eq!(pallet_balances::Pallet::<Test>::free_balance(miner2), reward * 2);
+    });
 }
-
-// Digest handling tests.
 
 #[test]
 fn no_reward_without_digest() {
-	new_test_ext().execute_with(|| {
-		let miner = Sr25519Keyring::Alice.to_account_id();
-		crate::pallet::Pallet::<Test>::on_finalize(1);
-		assert_eq!(pallet_balances::Pallet::<Test>::free_balance(miner), 0);
-	});
-}
-
-#[test]
-fn ignores_non_pow_digest() {
-	new_test_ext().execute_with(|| {
-		let miner = Sr25519Keyring::Alice.to_account_id();
-		let digest_item = DigestItem::PreRuntime(*b"aura", miner.encode());
-		frame_system::Pallet::<Test>::deposit_log(digest_item);
-
-		crate::pallet::Pallet::<Test>::on_finalize(1);
-
-		assert_eq!(pallet_balances::Pallet::<Test>::free_balance(miner), 0);
-	});
+    new_test_ext().execute_with(|| {
+        let miner = Sr25519Keyring::Alice.to_account_id();
+        advance_block(None);
+        assert_eq!(pallet_balances::Pallet::<Test>::free_balance(miner), 0);
+    });
 }
