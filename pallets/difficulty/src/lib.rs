@@ -126,19 +126,9 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			CurrentDifficulty::<T>::put(self.initial_difficulty);
-
-			// Compute anchor target if not explicitly set.
-			let target = 
-				if self.anchor_target == U256::zero() 
-				&& self.initial_difficulty != U256::zero() {
-					U256::MAX / self.initial_difficulty
-				} else {
-					self.anchor_target
-				};
-			AnchorTarget::<T>::put(target);
-			AnchorTimestamp::<T>::put(self.anchor_timestamp);
-			AnchorHeight::<T>::put(self.anchor_height);
+    		assert!(!self.initial_difficulty.is_zero(), "initial_difficulty must be non-zero");
+    		CurrentDifficulty::<T>::put(self.initial_difficulty);
+    		AnchorTarget::<T>::put(U256::MAX / self.initial_difficulty);
 		}
 	}
 
