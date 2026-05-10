@@ -116,6 +116,7 @@ pub fn compute_next_target(
 
 #[cfg(test)]
 mod tests {
+	use sp_runtime::traits::One;
 	use super::*;
 
 	/// If blocks are exactly on schedule, target should equal anchor_target.
@@ -162,7 +163,40 @@ mod tests {
 	fn target_never_zero() {
 		let anchor = U256::from(1u64);
 		let result = compute_next_target(anchor, 0, u64::MAX, 1, 1);
-		assert!(!result.is_zero(), "target must never be zero");
+		assert!(result.is_one(), "target must be at least 1");
 	}
-	
+
+	/// When `int_part >= 256` the result must be clamped to `U256::MAX`.
+	#[test]
+	fn extreme_positive_exponent_clamps_to_max() {
+		let anchor = U256::from(1_000_000u64);
+		// halflife=1, target_block_time=1, height_delta=0, time_delta=256
+		// → exponent = 256 halvings → int_part = 256 (boundary).
+		let result = compute_next_target(anchor, 256, 0, 1, 1);
+		assert_eq!(result, U256::MAX, "int_part == 256 must saturate to U256::MAX");
+	}
+
+	/// When the left-shift would overflow `U256` even for a small `int_part`,
+	/// the result must still be clamped to `U256::MAX`.
+	#[test]
+	fn left_shift_overflow_clamps_to_max() {
+		// Anchor occupies 238 bits, leaving 18 bits of headroom after the
+		// fractional multiplication (which itself uses ~17 bits).
+		let anchor = U256::MAX >> 18;
+		// halflife=1, target_block_time=1, height_delta=0, time_delta=19
+		// → int_part = 19 > headroom, so the shift overflows.
+		let result = compute_next_target(anchor, 19, 0, 1, 1);
+		assert_eq!(result, U256::MAX, "left-shift overflow must saturate to U256::MAX");
+	}
+
+	/// When the right-shift drives the result to zero, it must be clamped to 1.
+	#[test]
+	fn right_shift_to_zero_clamps_to_one() {
+		let anchor = U256::from(1u64);
+		// halflife=1800, target_block_time=20, height_delta=1, time_delta = 20 - 1800 = -1780
+		// → exponent ≈ -1 halving → int_part = -1, frac_part = 0
+		// → result = 1 >> 1 = 0, must be clamped to 1.
+		let result = compute_next_target(anchor, -1780, 1, 20, 1800);
+		assert!(result.is_one(), "zero result after right-shift must be clamped to 1");
+	}
 }
