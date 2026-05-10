@@ -1,12 +1,10 @@
 use crate as pallet_reward;
 use codec::Encode;
-use frame_support::{derive_impl, parameter_types, traits::ConstU128};
+use frame_support::{derive_impl, traits::{ConstU128, Hooks}};
 use sp_consensus_pow::POW_ENGINE_ID;
 use sp_runtime::{AccountId32, BuildStorage, DigestItem, traits::IdentityLookup};
 
 pub type Balance = u128;
-
-type Block = frame_system::mocking::MockBlock<Test>;
 
 #[frame_support::runtime]
 mod runtime {
@@ -36,7 +34,7 @@ mod runtime {
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {
-	type Block = Block;
+	type Block = frame_system::mocking::MockBlock<Test>;
 	type AccountId = AccountId32;
 	type Lookup = IdentityLookup<AccountId32>;
 	type AccountData = pallet_balances::AccountData<Balance>;
@@ -49,13 +47,9 @@ impl pallet_balances::Config for Test {
 	type ExistentialDeposit = ConstU128<1>;
 }
 
-parameter_types! {
-	pub const Reward: Balance = 50_000_000_000_000_000_000;
-}
-
 impl pallet_reward::Config for Test {
 	type Currency = Balances;
-	type BlockReward = Reward;
+	type BlockReward = ConstU128<1>;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
@@ -65,7 +59,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	storage.into()
 }
 
-pub fn set_author_digest(author: &AccountId32) {
+pub fn run_to_block_at(block: u64, author: &AccountId32)  {
 	let digest_item = DigestItem::PreRuntime(POW_ENGINE_ID, author.encode());
 	frame_system::Pallet::<Test>::deposit_log(digest_item);
+	pallet_reward::Pallet::<Test>::on_finalize(block);
 }
