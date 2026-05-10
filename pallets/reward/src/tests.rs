@@ -51,3 +51,12 @@ fn no_reward_without_digest() {
         assert_eq!(pallet_balances::Pallet::<Test>::free_balance(miner), 0);
     });
 }
+
+#[test]
+fn no_reward_without_pow_digest() {
+    new_test_ext().execute_with(|| {
+        let miner = Sr25519Keyring::Alice.to_account_id();
+        advance_block(Some(other_digest(&miner)));
+        assert_eq!(pallet_balances::Pallet::<Test>::free_balance(miner), 0);
+    });
+}

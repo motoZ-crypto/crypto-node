@@ -87,3 +87,7 @@ pub fn advance_block(digest_item: Option<DigestItem>) {
 pub fn pow_author_digest(author: &AccountId32) -> DigestItem {
     DigestItem::PreRuntime(POW_ENGINE_ID, author.encode())
 }
+
+pub fn other_digest(author: &AccountId32) -> DigestItem {
+    DigestItem::PreRuntime(*b"aura", author.encode())
+}
