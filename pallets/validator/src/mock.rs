@@ -1,4 +1,5 @@
 use crate as pallet_validator;
+use crate::SessionInterface;
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{ConstU128, ConstU32, ConstU64, LockIdentifier, VariantCountOf, Hooks},
@@ -62,11 +63,22 @@ impl pallet_balances::Config for Test {
 
 parameter_types! {
 	pub const TestLockId: LockIdentifier = *b"validatr";
+	pub static MissingSessionKeys: alloc::collections::BTreeSet<AccountId> =
+		alloc::collections::BTreeSet::new();
+}
+
+/// Mock `SessionInterface` whose `has_keys` answer is driven by the
+/// `MissingSessionKeys` static, allowing tests to flip the response per case.
+pub struct MockSession;
+impl SessionInterface<AccountId> for MockSession {
+	fn has_keys(who: &AccountId) -> bool {
+		!MissingSessionKeys::get().contains(who)
+	}
 }
 
 impl pallet_validator::Config for Test {
 	type Currency = Balances;
-	type SessionInterface = ();
+	type SessionInterface = MockSession;
 	type LockAmount = ConstU128<1_000>;
 	type LockDuration = ConstU64<10>;
 	type LockId = TestLockId;
@@ -101,4 +113,11 @@ pub fn run_to_block(target: u64) {
 		System::set_block_number(System::block_number() + 1);
     	Validator::on_initialize(System::block_number());
     }
+}
+
+pub fn new_session(index: u32) -> Option<alloc::vec::Vec<AccountId>> {
+	let vec = 
+		<crate::Pallet<Test> as pallet_session::historical::SessionManager<AccountId, (),>>
+		::new_session(index);
+	vec.map(|v| v.into_iter().map(|(account, _)| account).collect())
 }

@@ -3,7 +3,6 @@ use crate::{
     OfflineThisSession, PendingValidators, RejoinCooldown, ValidatorLocks, ValidatorStatus,
 };
 use frame_support::{assert_noop, assert_ok, traits::Get};
-use pallet_session::SessionManager;
 use sp_runtime::{traits::Dispatchable, DispatchError, TokenError};
 
 // region: lock
@@ -30,6 +29,23 @@ fn lock_succeeds_and_records_state() {
         System::assert_last_event(
 			Event::ValidatorLocked { who: ALICE, amount: lock_amount, expiry_block: 1 + lock_duration }.into(),
         );
+    });
+}
+
+#[test]
+fn lock_fails_without_session_keys() {
+    let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+
+    new_test_ext(vec![(ALICE, lock_amount)]).execute_with(|| {
+        MissingSessionKeys::mutate(|set| {
+            set.insert(ALICE);
+        });
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::SessionKeysNotRegistered,
+        );
+        assert!(ValidatorLocks::<Test>::get(ALICE).is_none());
+        assert!(PendingValidators::<Test>::get().is_empty());
     });
 }
 
@@ -132,7 +148,7 @@ fn lock_rejected_while_active() {
 
     new_test_ext(vec![(ALICE, lock_amount)]).execute_with(|| {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-        Validator::new_session(1);
+        new_session(1);
         assert!(ActiveValidators::<Test>::get().contains(&ALICE));
         assert!(!PendingValidators::<Test>::get().contains(&ALICE));
         assert_noop!(
@@ -149,7 +165,7 @@ fn relock_after_request_exit_refreshes_lock_and_status() {
     new_test_ext(vec![(ALICE, lock_amount)]).execute_with(|| {
         // Initial lock at block 1.
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-        Validator::new_session(1);
+        new_session(1);
         assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE]);
         let initial = ValidatorLocks::<Test>::get(ALICE).expect("locked");
         let initial_expiry = initial.expiry_block;
@@ -163,7 +179,7 @@ fn relock_after_request_exit_refreshes_lock_and_status() {
 
         // Next session removes ALICE from the active set (our own
         // `ActiveValidators` storage reflects the truth).
-        Validator::new_session(2);
+        new_session(2);
         assert!(ActiveValidators::<Test>::get().is_empty());
         assert!(PendingValidators::<Test>::get().is_empty());
         // The currency lock is still in place; `ValidatorLocks` still exists.
@@ -478,11 +494,91 @@ fn new_session_promotes_pending_validators() {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
         assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
 
-        let set = Validator::new_session(1)
+        let set = new_session(1)
             .expect("set must change from empty");
         assert_eq!(set, vec![ALICE, BOB]);
         assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
         assert!(PendingValidators::<Test>::get().is_empty());
+    });
+}
+
+
+#[test]
+fn new_session_drops_pending_when_exists() {
+    let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+
+    new_test_ext(vec![(ALICE, lock_amount), (BOB, lock_amount)]).execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        new_session(1);
+
+        PendingValidators::<Test>::mutate(|queue| {
+            let _ = queue.try_push(ALICE);
+        });
+        new_session(2);
+
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
+    });
+}
+
+#[test]
+fn new_session_drops_pending_when_without_session_keys() {
+    let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+
+    new_test_ext(vec![(ALICE, lock_amount), (BOB, lock_amount)]).execute_with(|| {
+        // Both lock successfully (keys are present).
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
+
+        // Simulate ALICE purging her session keys between lock and the
+        // next session boundary.
+        MissingSessionKeys::mutate(|set| {
+            set.insert(ALICE);
+        });
+
+        let next = new_session(1).expect("active set changed");
+        assert_eq!(next, vec![BOB], "ALICE must be skipped, BOB promoted");
+        assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![BOB]);
+        // The pending queue is drained either way.
+        assert!(PendingValidators::<Test>::get().is_empty());
+    });
+}
+
+#[test]
+fn new_session_drops_pending_when_capacity_full() {
+    let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+    let max_validators: u32 = <Test as crate::Config>::MaxValidators::get();
+    let newcomer = (max_validators + 1) as AccountId;
+
+    let validators: Vec<_> =
+        (1..=max_validators as AccountId)
+        .map(|i| (i, lock_amount))
+        .collect();
+
+    new_test_ext(validators.clone()).execute_with(|| {
+        for (validator, _) in validators {
+            assert_ok!(Validator::lock(RuntimeOrigin::signed(validator)));
+        }
+        new_session(1);
+
+        ValidatorLocks::<Test>::insert(
+            &newcomer,
+            LockInfo {
+                amount: lock_amount,
+                lock_block: 1,
+                expiry_block: 10,
+                status: ValidatorStatus::Active,
+            }
+        );
+
+        PendingValidators::<Test>::mutate(|queue| {
+            let _ = queue.try_push(newcomer);
+        });
+
+        new_session(2);
+
+        assert_eq!(ActiveValidators::<Test>::get().len(), max_validators as usize);
     });
 }
 
@@ -493,11 +589,11 @@ fn new_session_removes_exited_validator() {
     new_test_ext(vec![(ALICE, lock_amount), (BOB, lock_amount)]).execute_with(|| {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
         assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
-        Validator::new_session(1);
+        new_session(1);
 
         assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
 
-        let set = Validator::new_session(2)
+        let set = new_session(2)
             .expect("set must change after exit");
         assert_eq!(set, vec![BOB]);
         assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![BOB]);
@@ -511,14 +607,14 @@ fn new_session_removes_kicked_validators() {
     new_test_ext(vec![(ALICE, lock_amount), (BOB, lock_amount), (CHARLIE, lock_amount)]).execute_with(|| {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
         assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
-        Validator::new_session(1);
+        new_session(1);
 
         // Simulate kicks via direct storage mutation.
         ValidatorLocks::<Test>::mutate(BOB, |maybe| {
             maybe.as_mut().unwrap().status = ValidatorStatus::Kicked;
         });
 
-        let set = Validator::new_session(2)
+        let set = new_session(2)
             .expect("set must change after kick");
         assert_eq!(set, vec![ALICE]);
         assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE]);
@@ -531,9 +627,9 @@ fn new_session_returns_none_when_unchanged() {
 
     new_test_ext(vec![(ALICE, lock_amount)]).execute_with(|| {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-        Validator::new_session(1);
+        new_session(1);
         // No new lock and no exit: next session must be a no-op.
-        assert!(Validator::new_session(2).is_none());
+        assert!(new_session(2).is_none());
         assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE]);
     });
 }
@@ -546,8 +642,7 @@ fn empty_set_fallback_keeps_previous_authorities_after_mass_kick() {
         // Promote ALICE and BOB into the active set.
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
         assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
-        let set = Validator::new_session(1)
-            .expect("initial promotion");
+        let set = new_session(1).expect("initial promotion");
         assert_eq!(set, vec![ALICE, BOB]);
 
         // Kick both validators (e.g. equivocation). Their status switches to
@@ -567,7 +662,7 @@ fn empty_set_fallback_keeps_previous_authorities_after_mass_kick() {
         // Empty-set fallback: returning `None` keeps `pallet-session`'s
         // authority set intact, while our own `ActiveValidators` storage is
         // updated to the empty truth.
-        assert!(Validator::new_session(2).is_none());
+        assert!(new_session(2).is_none());
         assert!(ActiveValidators::<Test>::get().is_empty());
     });
 }
@@ -593,13 +688,13 @@ fn consecutive_offline_kicks_validator() {
     new_test_ext(vec![(ALICE, lock_amount), (BOB, lock_amount)]).execute_with(|| {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
         assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
-        let _ = Validator::new_session(1);
+        let _ = new_session(1);
         assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
 
         // ALICE misses three consecutive sessions while BOB stays online.
         for idx in 2..=(offline_threshold+1) as u32 {
             Validator::note_offline(&ALICE);
-            Validator::new_session(idx);
+            new_session(idx);
         }
 
         let alice_lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
@@ -625,16 +720,16 @@ fn intermittent_heartbeat_resets_counter() {
 
     new_test_ext(vec![(ALICE, lock_amount)]).execute_with(|| {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-        Validator::new_session(1);
+        new_session(1);
 
         for idx in 2..=offline_threshold as u32 {
             Validator::note_offline(&ALICE);
-            Validator::new_session(idx);
+            new_session(idx);
         }
         assert_eq!(OfflineSessionCount::<Test>::get(ALICE), offline_threshold - 1);
 
         // Heartbeat received this session: counter resets.
-        Validator::new_session(offline_threshold + 1);
+        new_session(offline_threshold + 1);
         assert_eq!(OfflineSessionCount::<Test>::get(ALICE), 0);
 
         let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
@@ -651,7 +746,7 @@ fn offline_does_not_overwrite_exit_requested() {
         // Activate ALICE and BOB so the active set is populated.
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
         assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
-        Validator::new_session(1);
+        new_session(1);
         assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
 
         // Pre-load offline counter to threshold-1 so the next offline report
@@ -669,7 +764,7 @@ fn offline_does_not_overwrite_exit_requested() {
 
         // ALICE is reported offline during the same session.
         Validator::note_offline(&ALICE);
-        Validator::new_session(2);
+        new_session(2);
 
         // The offline path must not downgrade ExitRequested into Kicked, must
         // not write a RejoinCooldown, and must clear stale offline counters.
@@ -725,7 +820,7 @@ fn note_equivocation_kicks_active_validator() {
             Event::ValidatorKicked { who: ALICE, reason: KickReason::Equivocation }.into(),
         );
 
-        let set = Validator::new_session(1).expect("set must shrink");
+        let set = new_session(1).expect("set must shrink");
         assert_eq!(set, vec![BOB]);
         assert_eq!(ActiveValidators::<Test>::get().to_vec(), vec![BOB]);
 
