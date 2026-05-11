@@ -62,7 +62,15 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     storage.into()
 }
 
-pub fn advance_block(digest_item: Option<DigestItem>) {
+pub fn advance_block() {
+    advance_block_with_array(None);
+}
+
+pub fn advance_block_with(digest_item: DigestItem) {
+    advance_block_with_array(Some(&[digest_item]));
+}
+
+pub fn advance_block_with_array(digest_item: Option<&[DigestItem]>) {
     use sp_runtime::Digest;
 
     let prev = System::block_number();
@@ -78,8 +86,10 @@ pub fn advance_block(digest_item: Option<DigestItem>) {
     let block = prev + 1;
     System::initialize(&block, &parent_hash, &Digest::default());
 
-    if let Some(item) = digest_item {
-        frame_system::Pallet::<Test>::deposit_log(item);
+    if let Some(items) = digest_item {
+        for item in items {
+            frame_system::Pallet::<Test>::deposit_log(item.clone());
+        }
     }
     pallet_reward::Pallet::<Test>::on_finalize(block);
 }
@@ -88,6 +98,10 @@ pub fn pow_author_digest(author: &AccountId32) -> DigestItem {
     DigestItem::PreRuntime(POW_ENGINE_ID, author.encode())
 }
 
-pub fn other_digest(author: &AccountId32) -> DigestItem {
+pub fn other_pre_runtime_digest(author: &AccountId32) -> DigestItem {
     DigestItem::PreRuntime(*b"aura", author.encode())
+}
+
+pub fn other_digest() -> DigestItem {
+    DigestItem::Other(b"12345".to_vec())
 }
