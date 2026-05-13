@@ -233,6 +233,20 @@ mod runtime {
 
 	#[runtime::pallet_index(11)]
 	pub type Historical = pallet_session::historical;
+
+	// --- Frontier EVM stack ---
+
+	#[runtime::pallet_index(12)]
+	pub type Ethereum = pallet_ethereum;
+
+	#[runtime::pallet_index(13)]
+	pub type EVM = pallet_evm;
+
+	#[runtime::pallet_index(14)]
+	pub type EVMChainId = pallet_evm_chain_id;
+
+	#[runtime::pallet_index(15)]
+	pub type BaseFee = pallet_base_fee;
 }
 
 // pallet-im-online submits unsigned heartbeat extrinsics from offchain
