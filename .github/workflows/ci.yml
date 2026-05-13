@@ -1,10 +1,8 @@
 name: CI
 
 on:
-  # workflow_dispatch:   # Allows you to run this workflow manually from the Actions tab
   pull_request:
     branches:
-      - dev
       - master
 
 concurrency:
@@ -12,24 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "ci"
-      - uses: ./.github/actions/free-disk-space
-      - uses: ./.github/actions/ubuntu-dependencies
-      - name: Check compilation
-        run: SKIP_WASM_BUILD=1 cargo check --workspace --locked
-        timeout-minutes: 20
-      - name: Pre-compile tests
-        run: SKIP_WASM_BUILD=1 cargo test --no-run --workspace --locked
-        timeout-minutes: 20
-
   clippy:
-    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +25,6 @@ jobs:
         timeout-minutes: 15
 
   test:
-    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
