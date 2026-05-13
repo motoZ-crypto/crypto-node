@@ -24,6 +24,9 @@ jobs:
       - name: Check compilation
         run: SKIP_WASM_BUILD=1 cargo check --workspace --locked
         timeout-minutes: 20
+      - name: Pre-compile tests
+        run: SKIP_WASM_BUILD=1 cargo test --no-run --workspace --locked
+        timeout-minutes: 20
 
   clippy:
     needs: check
