@@ -15,9 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "ci"
-          save-if: "false"
       - uses: ./.github/actions/free-disk-space
       - uses: ./.github/actions/ubuntu-dependencies
       - name: Run clippy
@@ -29,9 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "ci"
-          save-if: "false"
       - uses: ./.github/actions/free-disk-space
       - uses: ./.github/actions/ubuntu-dependencies
       - name: Run tests
