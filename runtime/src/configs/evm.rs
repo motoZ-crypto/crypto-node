@@ -93,7 +93,7 @@ where
 	R: pallet_evm::Config,
 {
 	pub fn new() -> Self {
-		Self(Default::default())
+		Self(PhantomData)
 	}
 	pub fn used_addresses() -> [H160; 8] {
 		[
