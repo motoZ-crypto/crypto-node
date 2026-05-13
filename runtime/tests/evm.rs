@@ -49,7 +49,7 @@ fn address_mapping_matches_blake2_evm_hash() {
 	payload[0..4].copy_from_slice(b"evm:");
 	payload[4..].copy_from_slice(h160.as_bytes());
 	let expected_hash = BlakeTwo256::hash(&payload);
-	let expected: AccountId = sp_runtime::AccountId32::from(<[u8; 32]>::from(expected_hash)).into();
+	let expected: AccountId = sp_runtime::AccountId32::from(<[u8; 32]>::from(expected_hash));
 
 	assert_eq!(mapped, expected);
 }
