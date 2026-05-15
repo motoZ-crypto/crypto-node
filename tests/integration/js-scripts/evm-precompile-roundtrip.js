@@ -24,6 +24,7 @@ const {
 } = require("ethers");
 const { ApiPromise, WsProvider } = require("@polkadot/api");
 const { Keyring } = require("@polkadot/keyring");
+const { cryptoWaitReady } = require("@polkadot/util-crypto");
 
 const ALITH_PK =
   "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133";
@@ -49,6 +50,7 @@ async function run(_zombie, networkInfo, _args) {
   try {
     api = await ApiPromise.create({ provider: subProvider });
 
+    await cryptoWaitReady();
     const keyring = new Keyring({ type: "sr25519" });
     const alice = keyring.addFromUri("//Alice");
     const alicePub = hexlify(alice.publicKey);
