@@ -5,7 +5,9 @@
   "description": "ethers.js & web3.js smoke scripts against the crypto-node Frontier RPC.",
   "scripts": {
     "transfer": "node transfer-ethers.js",
-    "query": "node query-web3.js"
+    "query": "node query-web3.js",
+    "transfer:precompile": "node transfer-precompile.js",
+    "withdraw": "node withdraw-to-substrate.js"
   },
   "dependencies": {
     "ethers": "^6.13.0",

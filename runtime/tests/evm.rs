@@ -295,3 +295,90 @@ fn local_and_integration_presets_pre_fund_frontier_dev_evm_accounts() {
 		solochain_template_runtime::genesis_config_presets::INTEGRATION_RUNTIME_PRESET,
 	);
 }
+
+#[test]
+fn balances_erc20_precompile_withdraw_moves_funds_back_to_substrate() {
+	// `withdraw(bytes32 dest, uint256 amount)` on the balances-erc20
+	// precompile is the supported way to move native UNIT from an EVM
+	// caller back to a substrate `AccountId32` that has no `H160`
+	// preimage. Verify that a single end-to-end EVM call:
+	//   1) credits the destination substrate account by exactly `amount`,
+	//   2) debits the caller's mirror account by exactly `amount` plus
+	//      the gas burned by `pallet-evm` (so the total balance moved out
+	//      of the caller equals `amount + (issuance_before - issuance_after)`).
+	new_test_ext().execute_with(|| {
+		let caller = H160::from_low_u64_be(0xC1A1);
+		let caller_acc =
+			<Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
+
+		// A pure substrate destination — i.e. an `AccountId32` whose 32
+		// bytes do NOT correspond to any `HashedAddressMapping(H160)`
+		// preimage. Mirrors the production case of withdrawing to e.g.
+		// Alice or sudo.
+		let dest_bytes: [u8; 32] = [0x42; 32];
+		let dest_acc: AccountId = sp_runtime::AccountId32::from(dest_bytes);
+
+		let initial: u128 = 7_500 * UNIT;
+		let amount: u128 = 1_000 * UNIT;
+		Balances::set_balance(&caller_acc, initial);
+		assert_eq!(Balances::free_balance(&dest_acc), 0);
+
+		let issuance_before = Balances::total_issuance();
+
+		let precompile = H160::from_low_u64_be(0x0802);
+		let max_fee_per_gas = U256::from(2_000_000_000u64);
+
+		// Selector = keccak256("withdraw(bytes32,uint256)")[..4] = 0x040cf020.
+		let mut data = vec![0x04, 0x0c, 0xf0, 0x20];
+		data.extend_from_slice(&dest_bytes);
+		let amount_word = U256::from(amount).to_big_endian();
+		data.extend_from_slice(&amount_word);
+
+		let res = <Runtime as pallet_evm::Config>::Runner::call(
+			caller,
+			precompile,
+			data,
+			U256::zero(),
+			1_000_000,
+			Some(max_fee_per_gas),
+			None,
+			None,
+			Vec::new(),
+			Vec::new(),
+			true,
+			true,
+			None,
+			None,
+			None,
+			<Runtime as pallet_evm::Config>::config(),
+		)
+		.expect("withdraw call must dispatch without runtime error");
+		assert!(
+			res.exit_reason.is_succeed(),
+			"withdraw must succeed: {:?}",
+			res.exit_reason,
+		);
+		// Solidity returns `bool true`.
+		assert_eq!(U256::from_big_endian(&res.value), U256::one());
+
+		// Substrate destination credited by exactly `amount`.
+		assert_eq!(
+			Balances::free_balance(&dest_acc),
+			amount,
+			"destination substrate account must be credited by amount"
+		);
+		// Caller mirror debited by exactly `amount` plus whatever gas
+		// `pallet-evm` burned during the call. Equivalently: the total
+		// balance moved out of the caller equals `amount` (transferred
+		// to `dest_acc`) plus the issuance delta (burned as fees).
+		let caller_after = Balances::free_balance(&caller_acc);
+		let issuance_after = Balances::total_issuance();
+		let gas_burn = issuance_before - issuance_after;
+		assert_eq!(
+			initial - caller_after,
+			amount + gas_burn,
+			"caller mirror debit must equal amount + gas burn",
+		);
+	});
+}
+

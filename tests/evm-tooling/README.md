@@ -107,3 +107,47 @@ The same flow is automated by
 If any step fails, capture the MetaMask "Activity → Speed up / Cancel"
 detail panel and the dev-node log; both are required for a useful bug
 report.
+
+## Native UNIT as ERC20 (precompile `0x0802`)
+
+The runtime exposes the native balance pallet through an ERC20-shaped
+precompile at `0x0000000000000000000000000000000000000802`
+(`pallet-evm-precompile-balances-erc20`). It serves two purposes:
+
+1. **EVM-native UNIT as ERC20** — `name` / `symbol` / `decimals` /
+   `totalSupply` / `balanceOf` / `transfer` / `transferFrom` / `approve` /
+   `allowance` are routed straight to `pallet-balances`. Wallets and
+   contracts can therefore handle native UNIT through the same ERC20
+   tooling they already use.
+2. **EVM → Substrate bridge** — the non-standard
+   `withdraw(bytes32 dest, uint256 amount)` selector moves `amount` from
+   the caller's mirror substrate account to the substrate `AccountId32`
+   given by `dest`, emitting `Withdrawal(address,bytes32,uint256)`. This
+   is the supported way to move funds **back from the EVM side to a pure
+   substrate account** (e.g. Alice / Bob / sudo) — a vanilla EVM `value`
+   transfer cannot reach an `AccountId32` that has no `H160` preimage.
+
+The Rust end-to-end coverage lives in
+[`runtime/tests/evm.rs`](../../runtime/tests/evm.rs)
+(`balances_erc20_precompile_balance_of_and_transfer_via_runner`). The
+JavaScript counterparts that drive the precompile through the live
+JSON-RPC are:
+
+| Path                                                                                       | What it covers                                               |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| [`scripts/transfer-precompile.js`](scripts/transfer-precompile.js)                         | ERC20 `transfer` of native UNIT (Alith → Baltathar via 0x0802) |
+| [`scripts/withdraw-to-substrate.js`](scripts/withdraw-to-substrate.js)                     | `withdraw(bytes32,uint256)` — Alith (EVM) → Alice (substrate) |
+| [`hardhat/test/NativeErc20.test.js`](hardhat/test/NativeErc20.test.js)                     | Hardhat assertion suite for `balanceOf` / `transfer` at 0x0802 |
+| [`../integration/js-scripts/evm-precompile-roundtrip.js`](../integration/js-scripts/evm-precompile-roundtrip.js) | Zombienet round-trip: substrate → EVM → substrate          |
+
+### MetaMask: import native UNIT as a token
+
+In MetaMask: **Tokens → Import tokens → Custom token**, paste
+`0x0000000000000000000000000000000000000802`. Symbol auto-fills as
+`UNIT`, decimals as `18`. The reported balance now mirrors the same
+account's `eth_getBalance`, and `Send` constructs an ERC20
+`transfer(address,uint256)` against the precompile instead of a value
+transaction. Withdrawing to a substrate account requires constructing
+the `withdraw` calldata manually (e.g. through Etherscan-style
+"interact with contract" dialogs); the canonical example is in
+`scripts/withdraw-to-substrate.js`.
