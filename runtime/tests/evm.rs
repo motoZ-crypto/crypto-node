@@ -227,3 +227,71 @@ fn evm_chain_id_constant_matches_genesis_value() {
 		assert_eq!(id, 0, "default storage value when no genesis preset is applied");
 	});
 }
+
+/// The six well-known Frontier dev EVM addresses (Alith, Baltathar, Charleth,
+/// Dorothy, Ethan, Faith). Their publicly documented private keys ship with
+/// every Frontier node template, so Hardhat / Foundry / MetaMask can use them
+/// directly against any preset that pre-funds them.
+const DEV_EVM_ADDRESSES: [&str; 6] = [
+	"0xf24ff3a9cf04c71dbc94d0b566f7a27b94566cac", // Alith
+	"0x3cd0a705a2dc65e5b1e1205896baa2be8a07c6e0", // Baltathar
+	"0x798d4ba9baf0064ec19eb4f0a1a45785ae9d6dfc", // Charleth
+	"0x773539d4ac0e786233d90a233654ccee26a613d9", // Dorothy
+	"0xff64d3f6efe2317ee2807d223a0bdc4c0c49dfdb", // Ethan
+	"0xc0f0f4ab324c46e55d02d0033343b4be8a55532d", // Faith
+];
+
+fn assert_preset_pre_funds_dev_evm_accounts(preset: &str) {
+	use solochain_template_runtime::genesis_config_presets::get_preset;
+	use sp_genesis_builder::PresetId;
+
+	let raw = get_preset(&PresetId::from(preset))
+		.unwrap_or_else(|| panic!("preset `{preset}` must exist"));
+	let json: serde_json::Value =
+		serde_json::from_slice(&raw).expect("preset emits valid JSON");
+
+	let accounts = json
+		.get("evm")
+		.and_then(|v| v.get("accounts"))
+		.and_then(|v| v.as_object())
+		.unwrap_or_else(|| panic!("`evm.accounts` missing in `{preset}` preset"));
+
+	assert_eq!(
+		accounts.len(),
+		DEV_EVM_ADDRESSES.len(),
+		"`{preset}` preset must pre-fund exactly {} dev EVM accounts",
+		DEV_EVM_ADDRESSES.len(),
+	);
+	for addr in DEV_EVM_ADDRESSES {
+		let entry = accounts
+			.get(addr)
+			.unwrap_or_else(|| panic!("dev EVM account {addr} not pre-funded by `{preset}`"));
+		let balance_str = entry
+			.get("balance")
+			.and_then(|v| v.as_str())
+			.expect("balance serialized as hex string");
+		let balance = sp_core::U256::from_str_radix(
+			balance_str.trim_start_matches("0x"),
+			16,
+		)
+		.expect("balance parses as U256");
+		assert_eq!(
+			balance,
+			sp_core::U256::from(1_000_000u128 * UNIT),
+			"unexpected starting balance for {addr} in `{preset}`",
+		);
+	}
+}
+
+#[test]
+fn dev_preset_pre_funds_frontier_dev_evm_accounts() {
+	assert_preset_pre_funds_dev_evm_accounts(sp_genesis_builder::DEV_RUNTIME_PRESET);
+}
+
+#[test]
+fn local_and_integration_presets_pre_fund_frontier_dev_evm_accounts() {
+	assert_preset_pre_funds_dev_evm_accounts(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET);
+	assert_preset_pre_funds_dev_evm_accounts(
+		solochain_template_runtime::genesis_config_presets::INTEGRATION_RUNTIME_PRESET,
+	);
+}
