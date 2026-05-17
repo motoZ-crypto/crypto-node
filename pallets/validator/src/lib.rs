@@ -220,6 +220,8 @@ pub mod pallet {
 		LockReleased { who: T::AccountId, amount: BalanceOf<T> },
         /// A GRANDPA equivocation report was processed for an active validator.
         EquivocationReported { who: T::AccountId },
+        /// A pending validator was dropped.
+        PendingValidatorDropped { who: T::AccountId },
     }
 
     /// Reason a validator was removed from the active set.
@@ -597,6 +599,14 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
                 .map(|info| info.status == ValidatorStatus::Active)
                 .unwrap_or(false)
         };
+        
+        let cancel_pending_candidate = |who: &T::AccountId| {
+            T::Currency::remove_lock(T::LockId::get(), who);
+            ValidatorLocks::<T>::remove(who);
+            OfflineSessionCount::<T>::remove(who);
+            OfflineThisSession::<T>::remove(who);
+            Self::deposit_event(Event::PendingValidatorDropped { who: who.clone() });
+        };
 
         let mut next: BoundedVec<T::AccountId, T::MaxValidators> = BoundedVec::default();
         for who in previous.iter() {
@@ -611,25 +621,12 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
             if !is_active(&who) || next.iter().any(|a| a == &who) {
                 continue;
             }
-            // Defensive depth: `lock` already enforces `has_keys`, but a
-            // candidate could in principle have called `session.purge_keys`
-            // between locking and this session boundary. Drop them rather
-            // than promote an account with default (zero) keys.
-            if !T::SessionInterface::has_keys(&who) {
-                log::warn!(
-                    target: LOG_TARGET,
-                    "skipping pending validator without session keys at session boundary",
-                );
+            if !T::SessionInterface::has_keys(&who)
+            || next.is_full() {
+                cancel_pending_candidate(&who);
                 continue;
             }
-            if next.try_push(who).is_err() {
-                // Bounded by `MaxValidators`; remaining entries stay dropped this session. 
-                log::warn!(
-                    target: LOG_TARGET,
-                    "MaxValidators reached at session boundary; dropping remaining pending validators",
-                );
-                break;
-            }
+            let _ = next.try_push(who);
         }
 
         // Always commit the recomputed set to our own storage so that
