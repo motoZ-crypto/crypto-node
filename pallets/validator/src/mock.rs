@@ -81,6 +81,8 @@ impl pallet_validator::Config for Test {
 	type SessionInterface = MockSession;
 	type LockAmount = ConstU128<1_000>;
 	type LockDuration = ConstU64<10>;
+	type SessionPeriod = ConstU64<5>;
+	type SessionOffset = ConstU64<0>;
 	type LockId = TestLockId;
 	type MaxValidators = ConstU32<3>;
 	type RenewInterval = ConstU64<5>;

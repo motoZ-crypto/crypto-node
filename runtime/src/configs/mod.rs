@@ -246,6 +246,8 @@ parameter_types! {
 impl pallet_validator::Config for Runtime {
 	type Currency = Balances;
 	type SessionInterface = ValidatorSessionAdapter;
+	type SessionPeriod = SessionPeriod;
+	type SessionOffset = SessionOffset;
 	type LockAmount = ConstU128<{ 1_000 * UNIT }>;
 	#[allow(clippy::identity_op)]
 	type LockDuration = ConstU32<{ 1 * DAYS }>;
@@ -268,6 +270,8 @@ parameter_types! {
 impl pallet_validator::Config for Runtime {
 	type Currency = Balances;
 	type SessionInterface = ValidatorSessionAdapter;
+	type SessionPeriod = SessionPeriod;
+	type SessionOffset = SessionOffset;
 	type LockAmount = ConstU128<{ 1 * UNIT }>;
 	type LockDuration = ConstU32<{ 20 * MINUTES }>;
 	type LockId = ValidatorLockId;
