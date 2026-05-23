@@ -83,20 +83,26 @@ pub mod pallet {
         /// Currency used for validator stake locking.
         type Currency: LockableCurrency<Self::AccountId, Moment = BlockNumberFor<Self>>;
 
-        /// Adapter that bridges to the runtime's session-key registry. Used
-        /// by `lock` to verify that a candidate has registered keys before
-        /// they are queued for promotion.
+        /// Adapter that bridges to the runtime's session-key registry.
         type SessionInterface: SessionInterface<Self::AccountId>;
+
+        /// Session period used for periodic session rotation.
+        #[pallet::constant]
+        type SessionPeriod: Get<BlockNumberFor<Self>>;
+
+        /// Delay before the first session starts.
+        #[pallet::constant]
+        type SessionOffset: Get<BlockNumberFor<Self>>;
 
         /// Amount to lock when registering as a validator.
         #[pallet::constant]
         type LockAmount: Get<BalanceOf<Self>>;
 
-        /// Lock duration (in blocks) applied at registration and on each renewal.
+        /// Lock duration applied at registration and on each renewal.
         #[pallet::constant]
         type LockDuration: Get<BlockNumberFor<Self>>;
 
-        /// Lock identifier used when calling `set_lock` on the underlying currency.
+        /// Lock identifier used when calling set_lock on the underlying currency.
         #[pallet::constant]
         type LockId: Get<LockIdentifier>;
 
@@ -104,7 +110,7 @@ pub mod pallet {
         #[pallet::constant]
         type MaxValidators: Get<u32>;
 
-        /// Interval (in blocks) between auto-renewal sweeps.
+        /// Interval between auto-renewal sweeps.
         #[pallet::constant]
         type RenewInterval: Get<BlockNumberFor<Self>>;
 
@@ -112,8 +118,7 @@ pub mod pallet {
         #[pallet::constant]
         type OfflineThreshold: Get<u32>;
 
-        /// Cooldown period (in blocks) applied to a kicked validator before they
-        /// are allowed to call `lock()` again.
+        /// Blocks a kicked validator must wait before staking again.
         #[pallet::constant]
         type RejoinCooldownPeriod: Get<BlockNumberFor<Self>>;
     }
@@ -254,7 +259,7 @@ pub mod pallet {
         InvalidStatus,
         /// Lock has not yet reached its expiry block.
         LockNotExpired,
-        /// Account is currently within an equivocation cooldown.
+        /// Account is currently within a rejoin cooldown after being kicked.
         InCooldown,
         /// Account does not have enough free balance to cover the configured lock.
         InsufficientBalance,
