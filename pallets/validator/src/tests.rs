@@ -868,3 +868,154 @@ fn note_equivocation_is_idempotent() {
 }
 
 // endregion
+// region: rejoin
+
+#[test]
+fn rejoin_after_exit_immediate_relock_rejected() {
+    let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+
+    new_test_ext(vec![(ALICE, lock_amount)]).execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        new_session(1);
+        assert_eq!(DesiredValidators::<Test>::get().to_vec(), vec![ALICE]);
+
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+        // Still a member of the active set this session: relock is rejected.
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::AlreadyValidator
+        );
+    });
+}
+
+#[test]
+fn rejoin_after_exit_next_session_succeeds() {
+    let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+
+    new_test_ext(vec![(ALICE, lock_amount)]).execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        new_session(1);
+        assert_ok!(Validator::request_exit(RuntimeOrigin::signed(ALICE)));
+
+        // The boundary drops ALICE from the active set.
+        new_session(2);
+        assert!(DesiredValidators::<Test>::get().is_empty());
+
+        // A voluntary exit sets no cooldown, so relock succeeds right away.
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(ValidatorLocks::<Test>::get(ALICE).unwrap().status, ValidatorStatus::Active);
+        assert!(PendingValidators::<Test>::get().contains(&ALICE));
+
+        // ALICE is promoted back into the active set at the next boundary.
+        let set = new_session(3).expect("ALICE rejoins");
+        assert_eq!(set, vec![ALICE]);
+    });
+}
+
+#[test]
+fn rejoin_after_offline_immediate_relock_rejected() {
+    let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+    let offline_threshold: u32 = <Test as crate::Config>::OfflineThreshold::get();
+
+    new_test_ext(vec![(ALICE, lock_amount), (BOB, lock_amount)]).execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        new_session(1);
+
+        // Consecutive offline sessions reach the threshold and kick ALICE.
+        for idx in 2..=offline_threshold + 1 {
+            Validator::note_offline(&ALICE);
+            new_session(idx);
+        }
+        assert_eq!(ValidatorLocks::<Test>::get(ALICE).unwrap().status, ValidatorStatus::Kicked);
+        assert!(!DesiredValidators::<Test>::get().to_vec().contains(&ALICE));
+
+        // The rejoin cooldown is active right after the kick: relock is blocked.
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::InCooldown
+        );
+    });
+}
+
+#[test]
+fn rejoin_after_offline_cooldown_expired_succeeds() {
+    let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+    let offline_threshold: u32 = <Test as crate::Config>::OfflineThreshold::get();
+
+    new_test_ext(vec![(ALICE, lock_amount), (BOB, lock_amount)]).execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        new_session(1);
+        for idx in 2..=offline_threshold + 1 {
+            Validator::note_offline(&ALICE);
+            new_session(idx);
+        }
+        let deadline = RejoinCooldown::<Test>::get(ALICE).expect("cooldown set");
+
+        // Before the deadline the relock is still rejected.
+        System::set_block_number(deadline);
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::InCooldown
+        );
+
+        // After the cooldown expires the relock succeeds and clears the record.
+        System::set_block_number(deadline + 1);
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(ValidatorLocks::<Test>::get(ALICE).unwrap().status, ValidatorStatus::Active);
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
+    });
+}
+
+#[test]
+fn rejoin_after_equivocation_immediate_relock_rejected() {
+    let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+
+    new_test_ext(vec![(ALICE, lock_amount), (BOB, lock_amount)]).execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        new_session(1);
+
+        Validator::note_equivocation(&ALICE);
+        // The kick is deferred: ALICE is still an active member, so relock is
+        // rejected as `AlreadyValidator` rather than `InCooldown`.
+        assert_eq!(ValidatorLocks::<Test>::get(ALICE).unwrap().status, ValidatorStatus::Active);
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::AlreadyValidator
+        );
+    });
+}
+
+#[test]
+fn rejoin_after_equivocation_cooldown_expired_succeeds() {
+    let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+
+    new_test_ext(vec![(ALICE, lock_amount), (BOB, lock_amount)]).execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        new_session(1);
+        Validator::note_equivocation(&ALICE);
+
+        // The boundary applies the kick and sets the rejoin cooldown.
+        new_session(2);
+        assert_eq!(ValidatorLocks::<Test>::get(ALICE).unwrap().status, ValidatorStatus::Kicked);
+        let deadline = RejoinCooldown::<Test>::get(ALICE).expect("cooldown set");
+
+        // Before the deadline the relock is still rejected.
+        System::set_block_number(deadline);
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::InCooldown
+        );
+
+        // After the cooldown expires the relock succeeds and clears the record.
+        System::set_block_number(deadline + 1);
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(ValidatorLocks::<Test>::get(ALICE).unwrap().status, ValidatorStatus::Active);
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
+    });
+}
+
+// endregion
