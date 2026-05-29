@@ -1,6 +1,6 @@
 use crate::{
-    mock::*, DesiredValidators, Error, Event, KickReason, LockInfo, OfflineSessionCount,
-    OfflineThisSession, PendingValidators, RejoinCooldown, ValidatorLocks, ValidatorStatus,
+    mock::*, DesiredValidators, PendingValidators, Error, Event, KickReason, LockInfo, OfflineSessionCount, 
+    OfflineThisSession, EquivocationThisSession, RejoinCooldown, ValidatorLocks, ValidatorStatus,
 };
 use frame_support::{assert_noop, assert_ok, traits::Get};
 use sp_runtime::{traits::Dispatchable, DispatchError, TokenError};
@@ -645,11 +645,14 @@ fn empty_set_fallback_keeps_previous_authorities_after_mass_kick() {
         let set = new_session(1).expect("initial promotion");
         assert_eq!(set, vec![ALICE, BOB]);
 
-        // Kick both validators (e.g. equivocation). Their status switches to
-        // `Kicked` so they are excluded from the next active set, leaving it
-        // empty.
+        // Kick both validators (e.g. equivocation). 
         Validator::note_equivocation(&ALICE);
         Validator::note_equivocation(&BOB);
+
+        // Empty-set fallback: returning `None` keeps `pallet-session`'s
+        // authority set intact, while our own `DesiredValidators` storage is
+        // updated to the empty truth.
+        assert!(new_session(2).is_none());
         assert_eq!(
             ValidatorLocks::<Test>::get(ALICE).unwrap().status,
             ValidatorStatus::Kicked
@@ -658,11 +661,6 @@ fn empty_set_fallback_keeps_previous_authorities_after_mass_kick() {
             ValidatorLocks::<Test>::get(BOB).unwrap().status,
             ValidatorStatus::Kicked
         );
-
-        // Empty-set fallback: returning `None` keeps `pallet-session`'s
-        // authority set intact, while our own `DesiredValidators` storage is
-        // updated to the empty truth.
-        assert!(new_session(2).is_none());
         assert!(DesiredValidators::<Test>::get().is_empty());
     });
 }
@@ -799,65 +797,73 @@ fn note_equivocation_ignores_non_validator() {
 fn note_equivocation_kicks_active_validator() {
     let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
     let lock_duration: u64 = <Test as crate::Config>::LockDuration::get();
-    let rejoin_cooldown: u64 = <Test as crate::Config>::RejoinCooldownPeriod::get();
 
     new_test_ext(vec![(ALICE, lock_amount), (BOB, lock_amount)]).execute_with(|| {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
         assert_ok!(Validator::lock(RuntimeOrigin::signed(BOB)));
+        new_session(1);
+        assert_eq!(DesiredValidators::<Test>::get().to_vec(), vec![ALICE, BOB]);
 
         Validator::note_equivocation(&ALICE);
+        new_session(2);
 
-        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
-        assert_eq!(lock.status, ValidatorStatus::Kicked);
-        // Lock amount and expiry are unchanged so funds unlock at the original block.
-        assert_eq!(lock.amount, lock_amount);
-        assert_eq!(lock.expiry_block, System::block_number() + lock_duration);
-
-        let cooldown = RejoinCooldown::<Test>::get(ALICE).expect("cooldown recorded");
-        assert_eq!(cooldown, System::block_number() + rejoin_cooldown);
-
-        // Both events fire in order: detection then kick.
-        let events: Vec<_> = System::events()
-            .into_iter()
-            .filter_map(|e| match e.event {
-                RuntimeEvent::Validator(ev @ Event::EquivocationReported { .. })
-                | RuntimeEvent::Validator(ev @ Event::ValidatorKicked { .. }) => Some(ev),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            events,
-            vec![
-                Event::EquivocationReported { who: ALICE },
-                Event::ValidatorKicked { who: ALICE, reason: KickReason::Equivocation },
-            ],
-        );
-
-        let set = new_session(1).expect("set must shrink");
-        assert_eq!(set, vec![BOB]);
+        let alice_lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
+        assert_eq!(alice_lock.status, ValidatorStatus::Kicked);
+        assert_eq!(alice_lock.amount, lock_amount);
+        assert_eq!(alice_lock.expiry_block, System::block_number() + lock_duration);
+        assert!(RejoinCooldown::<Test>::get(ALICE).is_some());
         assert_eq!(DesiredValidators::<Test>::get().to_vec(), vec![BOB]);
-
+        // The transient set must be empty after processing.
+        assert!(EquivocationThisSession::<Test>::iter().next().is_none());
+        // Event emitted with `Equivocation` reason.
+        let kicked = System::events().into_iter().any(|e| matches!(
+            e.event,
+            RuntimeEvent::Validator(Event::ValidatorKicked { who: ALICE, reason: KickReason::Equivocation })
+        ));
+        assert!(kicked, "ValidatorKicked event with Equivocation reason expected");
     });
 }
 
 #[test]
 fn note_equivocation_is_idempotent() {
     let lock_amount: Balance = <Test as crate::Config>::LockAmount::get();
+    let rejoin_cooldown: u64 = <Test as crate::Config>::RejoinCooldownPeriod::get();
 
     new_test_ext(vec![(ALICE, lock_amount)]).execute_with(|| {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
-        Validator::note_equivocation(&ALICE);
-        let cooldown_first = RejoinCooldown::<Test>::get(ALICE).expect("cooldown recorded");
+        new_session(1);
 
-        // Advance a block and report again: the cooldown deadline must not move.
+        Validator::note_equivocation(&ALICE);
+        // Advance a block and report again within the same session: still a
+        // single flag and no premature state change.
         System::set_block_number(2);
         Validator::note_equivocation(&ALICE);
+        assert!(EquivocationThisSession::<Test>::contains_key(ALICE));
+        assert_eq!(
+            ValidatorLocks::<Test>::get(ALICE).unwrap().status,
+            ValidatorStatus::Active
+        );
 
-        let cooldown_second = RejoinCooldown::<Test>::get(ALICE).expect("cooldown retained");
-        assert_eq!(cooldown_first, cooldown_second);
-
+        // The boundary applies a single kick; the cooldown is anchored to the
+        // boundary block, not to any individual report.
+        new_session(2);
         let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock retained");
         assert_eq!(lock.status, ValidatorStatus::Kicked);
+        assert_eq!(
+            RejoinCooldown::<Test>::get(ALICE).expect("cooldown recorded"),
+            System::block_number() + rejoin_cooldown
+        );
+        let kicks = System::events()
+            .into_iter()
+            .filter(|e| matches!(
+                e.event,
+                RuntimeEvent::Validator(Event::ValidatorKicked {
+                    who: ALICE,
+                    reason: KickReason::Equivocation
+                })
+            ))
+            .count();
+        assert_eq!(kicks, 1);
     });
 }
 

@@ -149,10 +149,13 @@ pub mod pallet {
     #[pallet::storage]
 	pub type OfflineSessionCount<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
 
-    /// Accounts reported as offline during the current session. Cleared when
-    /// the next session boundary is processed.
+    /// Accounts reported as offline during the current session. Cleared when the next session boundary is processed.
     #[pallet::storage]
 	pub type OfflineThisSession<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+
+    /// Accounts reported for GRANDPA equivocation during the current session. Cleared when the next session boundary is processed.
+    #[pallet::storage]
+	pub type EquivocationThisSession<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
 
     /// Genesis configuration for `pallet-validator`.
     ///
@@ -302,8 +305,6 @@ pub mod pallet {
             for (who, amount) in to_release {
                 T::Currency::remove_lock(T::LockId::get(), &who);
                 ValidatorLocks::<T>::remove(&who);
-                OfflineSessionCount::<T>::remove(&who);
-                OfflineThisSession::<T>::remove(&who);
                 Self::deposit_event(Event::LockReleased { who, amount });
             }
 
@@ -463,56 +464,94 @@ impl<T: Config> Pallet<T> {
         );
     }
 
-    /// Mark `who` as kicked due to GRANDPA equivocation.
+    /// Record `who` for a GRANDPA equivocation kick at the next session
+    /// boundary.
     ///
-    /// Idempotent: a non-validator or an already kicked account is silently
-    /// ignored. The currency lock is left in place so that funds unlock at the
-    /// original `expiry_block`; auto-renewal stops because the status leaves
-    /// [`ValidatorStatus::Active`]. The account is removed from the active set
-    /// at the next session boundary by `new_session`.
+    /// Mirrors the offline path: rather than mutating validator state in the
+    /// middle of a session — which would flip the status to `Kicked` while the
+    /// account is still a member of the active set until the boundary — this
+    /// only flags the account. The actual kick (status transition, rejoin
+    /// cooldown, removal from the pending queue and active set) is applied
+    /// atomically in `new_session` via `process_equivocations`.
+    ///
+    /// Idempotent: non-validators, accounts not in [`ValidatorStatus::Active`],
+    /// and repeated reports within the same session are silently ignored. An
+    /// `EquivocationReported` event is emitted immediately for observability.
     pub fn note_equivocation(who: &T::AccountId) {
-        let mut transitioned = false;
-        ValidatorLocks::<T>::mutate(who, |maybe_info| {
-            if let Some(info) = maybe_info {
-                if info.status == ValidatorStatus::Kicked {
-                    return;
-                }
-                info.status = ValidatorStatus::Kicked;
-                transitioned = true;
-            }
-        });
-        if !transitioned {
+        let is_active = ValidatorLocks::<T>::get(who)
+            .map(|info| info.status == ValidatorStatus::Active)
+            .unwrap_or(false);
+        if !is_active {
             log::debug!(
                 target: LOG_TARGET,
                 "equivocation report ignored: account is not an active validator",
             );
             return;
         }
+        if EquivocationThisSession::<T>::contains_key(who) {
+            // Already flagged this session; keep repeated reports idempotent.
+            return;
+        }
+        EquivocationThisSession::<T>::insert(who, ());
+        Self::deposit_event(Event::EquivocationReported { who: who.clone() });
+        log::info!(
+            target: LOG_TARGET,
+            "equivocation reported; kick deferred to next session boundary",
+        );
+    }
 
+    /// Apply a kick to `who`: flip the lock status from `Active` to `Kicked`,
+    /// start the rejoin cooldown, and clear any transient offline tracking
+    /// state. The currency lock is left in place so funds unlock at the
+    /// original `expiry_block`; auto-renewal stops because the status left
+    /// `Active`. Emits `ValidatorKicked` with `reason`. Returns whether a kick
+    /// actually happened (an account not in `Active` is left untouched).
+    fn kick_validator(who: &T::AccountId, reason: KickReason) -> bool {
+        let mut kicked = false;
+        ValidatorLocks::<T>::mutate(who, |maybe_info| {
+            if let Some(info) = maybe_info {
+                if info.status == ValidatorStatus::Active {
+                    info.status = ValidatorStatus::Kicked;
+                    kicked = true;
+                }
+            }
+        });
+        if !kicked {
+            return false;
+        }
         let now = frame_system::Pallet::<T>::block_number();
         let cooldown = T::RejoinCooldownPeriod::get();
         RejoinCooldown::<T>::insert(who, now.saturating_add(cooldown));
-
         OfflineSessionCount::<T>::remove(who);
         OfflineThisSession::<T>::remove(who);
-
-        // Drop from the pending queue so the account is not promoted at the
-        // next session boundary if it had not yet been activated.
-        PendingValidators::<T>::mutate(|queue| {
-            if let Some(pos) = queue.iter().position(|a| a == who) {
-                queue.remove(pos);
-            }
-        });
-
-        Self::deposit_event(Event::EquivocationReported { who: who.clone() });
         Self::deposit_event(Event::ValidatorKicked {
             who: who.clone(),
-            reason: KickReason::Equivocation,
+            reason,
         });
-        log::info!(
-            target: LOG_TARGET,
-            "validator kicked due to GRANDPA equivocation",
-        );
+        true
+    }
+
+    /// Apply deferred GRANDPA equivocation kicks at a session boundary.
+    ///
+    /// For each account flagged via `note_equivocation` during the session,
+    /// flip the status to `Kicked`, record a rejoin cooldown, and emit
+    /// `ValidatorKicked`. Performing this here keeps the status transition
+    /// atomic with removal from the active set (done by `new_session`), so an
+    /// equivocator is never simultaneously `Kicked` and still a member of
+    /// `DesiredValidators`. Runs before `process_offline_counters` so an
+    /// equivocation kick takes precedence over a concurrent offline kick for
+    /// the same account.
+    fn process_equivocations() {
+        let flagged: alloc::vec::Vec<T::AccountId> =
+            EquivocationThisSession::<T>::drain().map(|(who, _)| who).collect();
+        for who in flagged {
+            if Self::kick_validator(&who, KickReason::Equivocation) {
+                log::info!(
+                    target: LOG_TARGET,
+                    "validator kicked due to GRANDPA equivocation",
+                );
+            }
+        }
     }
 
     /// Update offline counters for the current active set and kick any
@@ -521,12 +560,10 @@ impl<T: Config> Pallet<T> {
     /// recomputed.
     fn process_offline_counters() {
         let threshold = T::OfflineThreshold::get();
-        let cooldown = T::RejoinCooldownPeriod::get();
-        let now = frame_system::Pallet::<T>::block_number();
         let active = DesiredValidators::<T>::get();
 
         for who in active.iter() {
-            
+
             // Only Active validators participate in the offline accounting.
             // Anything else (ExitRequested / Kicked / Cooldown / removed) is
             // already on its way out and must not be overwritten by an offline
@@ -539,9 +576,7 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            let was_offline = OfflineThisSession::<T>::take(who).is_some();
-
-            if !was_offline {
+            if OfflineThisSession::<T>::take(who).is_none() {
                 if OfflineSessionCount::<T>::contains_key(who) {
                     OfflineSessionCount::<T>::remove(who);
                 }
@@ -560,23 +595,13 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            // Threshold reached: kick.
-            OfflineSessionCount::<T>::remove(who);
-            ValidatorLocks::<T>::mutate(who, |maybe_info| {
-                if let Some(info) = maybe_info {
-                    info.status = ValidatorStatus::Kicked;
-                }
-            });
-            RejoinCooldown::<T>::insert(who, now.saturating_add(cooldown));
-            Self::deposit_event(Event::ValidatorKicked {
-                who: who.clone(),
-                reason: KickReason::Offline,
-            });
-            log::info!(
-                target: LOG_TARGET,
-                "validator kicked after {} consecutive offline sessions",
-                threshold,
-            );
+            if Self::kick_validator(who, KickReason::Offline) {
+                log::info!(
+                    target: LOG_TARGET,
+                    "validator kicked after {} consecutive offline sessions",
+                    threshold,
+                );
+            }
         }
 
         // Drop any leftover entries (offenders that are not in the active set).
@@ -595,6 +620,7 @@ impl<T: Config> Pallet<T> {
 /// active set, matching the `pallet-session` convention.
 impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
     fn new_session(_new_index: u32) -> Option<alloc::vec::Vec<T::AccountId>> {
+        Self::process_equivocations();
         Self::process_offline_counters();
 
         let previous = DesiredValidators::<T>::get();
