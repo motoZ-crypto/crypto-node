@@ -1,7 +1,0 @@
-Description: GRANDPA equivocation kick + cooldown + rejoin
-Network: ./zombienet.toml
-Creds: /tmp/zn-creds.cfg
-
-bob: is up
-
-bob: js-script ./equivocation-kick-and-rejoin.js return is 1 within 3600 seconds
