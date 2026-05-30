@@ -7,35 +7,38 @@
 
 const { ApiPromise, WsProvider } = require("@polkadot/api");
 const { Keyring } = require("@polkadot/keyring");
-const { cryptoWaitReady } = require("@polkadot/util-crypto");
+const { cryptoWaitReady, decodeAddress } = require("@polkadot/util-crypto");
+const { u8aToHex } = require("@polkadot/util");
 
 async function connect(networkInfo, nodeName) {
     const info = networkInfo.nodesByName[nodeName];
     if (!info) throw new Error(`unknown node: ${nodeName}`);
     const provider = new WsProvider(info.wsUri);
-    const api = await ApiPromise.create({ provider, throwOnConnect: true, noInitWarn: true });
+    const api = await ApiPromise.create({
+        provider,
+        throwOnConnect: true,
+        noInitWarn: true,
+        types: {
+            GeneratedSessionKeys: {
+                keys: "Bytes",
+                proof: "Bytes",
+            },
+        },
+        rpc: {
+            author: {
+                rotateKeysWithOwner: {
+                    description: "Generate new session keys and a matching ownership proof",
+                    params: [{ name: "owner", type: "Bytes" }],
+                    type: "GeneratedSessionKeys",
+                },
+            },
+        },
+    });
     return api;
-}
-
-// Connect with a hard timeout; returns null if the node is unreachable
-// (e.g. paused via SIGSTOP in the validator-mass-offline scenario).
-async function tryConnect(networkInfo, nodeName, timeoutMs = 5000) {
-    return await Promise.race([
-        connect(networkInfo, nodeName).catch(() => null),
-        new Promise((r) => setTimeout(() => r(null), timeoutMs)),
-    ]);
 }
 
 async function connectAll(networkInfo, names) {
     return Promise.all(names.map((n) => connect(networkInfo, n)));
-}
-
-// Like `connectAll`, but tolerant of nodes that are paused / unreachable.
-// Returns a `[name, api|null]` map preserving the original order.
-async function tryConnectAll(networkInfo, names, timeoutMs = 5000) {
-    return Promise.all(
-        names.map(async (n) => [n, await tryConnect(networkInfo, n, timeoutMs)])
-    );
 }
 
 async function disconnectAll(apis) {
@@ -46,62 +49,53 @@ async function disconnectAll(apis) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function bestNumber(api) {
-    const h = await api.rpc.chain.getHeader();
-    return h.number.toNumber();
+function getUri(name) {
+    return `//${name[0].toUpperCase()}${name.slice(1).toLowerCase()}`;
 }
 
 async function finalizedNumber(api) {
     const hash = await api.rpc.chain.getFinalizedHead();
-    const h = await api.rpc.chain.getHeader(hash);
-    return h.number.toNumber();
+    const header = await api.rpc.chain.getHeader(hash);
+    return header.number.toNumber();
 }
 
-async function sessionIndex(api) {
-    return (await api.query.session.currentIndex()).toNumber();
+async function watchHeads(api, onHead, timeoutBlocks) {
+    return new Promise((resolve, reject) => {
+        let unsub = null;
+        let firstNum = null;
+        const stop = (fn, v) => { if (unsub) { unsub(); unsub = null; } fn(v); };
+        api.rpc.chain.subscribeNewHeads(async (header) => {
+            try {
+                const num = header.number.toNumber();
+                if (firstNum === null) firstNum = num;
+                const v = await onHead(header);
+                if (v !== undefined) return stop(resolve, v);
+                if (timeoutBlocks !== undefined && num - firstNum >= timeoutBlocks) {
+                    return stop(reject, new Error(`watchHeads: ${timeoutBlocks} blocks elapsed (#${firstNum}..#${num}) without result`));
+                }
+            } catch (e) {
+                stop(reject, e);
+            }
+        }).then((u) => { unsub = u; }).catch(reject);
+    });
 }
 
-async function sessionValidators(api) {
-    const set = await api.query.session.validators();
-    return set.map((id) => id.toString());
+async function waitBlock(api, num) {
+    let seen = 0;
+    return watchHeads(api, () => {
+        seen += 1;
+        if (seen > num) return true;
+    });
 }
 
-async function waitForFinalizedAdvance(api, by, maxMs) {
-    const start = await finalizedNumber(api);
-    const deadline = Date.now() + maxMs;
-    while (Date.now() < deadline) {
-        const cur = await finalizedNumber(api);
-        if (cur >= start + by) return cur;
-        await sleep(2000);
-    }
-    throw new Error(`finalized only advanced ${(await finalizedNumber(api)) - start}/${by} in ${maxMs}ms`);
+async function waitBlockAt(api, height) {
+    if ((await api.rpc.chain.getHeader()).number.toNumber() >= height) return;
+    return watchHeads(api, (header) => {
+        if (header.number.toNumber() >= height) return true;
+    });
 }
 
-async function waitForSessionRotations(api, n, maxMs) {
-    const start = await sessionIndex(api);
-    const deadline = Date.now() + maxMs;
-    while (Date.now() < deadline) {
-        const cur = await sessionIndex(api);
-        if (cur >= start + n) return cur;
-        await sleep(3000);
-    }
-    throw new Error(`session only rotated ${(await sessionIndex(api)) - start}/${n} in ${maxMs}ms`);
-}
-
-let _keyring;
-async function keyring() {
-    if (_keyring) return _keyring;
-    await cryptoWaitReady();
-    _keyring = new Keyring({ type: "sr25519", ss58Format: 42 });
-    return _keyring;
-}
-
-async function pair(uri) {
-    const k = await keyring();
-    return k.addFromUri(uri);
-}
-
-function sendAndWait(api, signer, extrinsic) {
+function submitExtrinsic(api, signer, extrinsic) {
     return new Promise((resolve, reject) => {
         extrinsic
             .signAndSend(signer, ({ status, dispatchError, events }) => {
@@ -119,10 +113,65 @@ function sendAndWait(api, signer, extrinsic) {
     });
 }
 
+// ------------ Account ------------
+
+let _keyring;
+async function keyring() {
+    if (_keyring) return _keyring;
+    await cryptoWaitReady();
+    _keyring = new Keyring({ type: "sr25519", ss58Format: 42 });
+    return _keyring;
+}
+
+async function pair(uri) {
+    const k = await keyring();
+    return k.addFromUri(uri);
+}
+
+function addressHex(ss58OrBytes) {
+    return u8aToHex(decodeAddress(ss58OrBytes)).toLowerCase();
+}
+
+// ------------ PoW ------------
+
+const POW_ENGINE_ID = "0x706f775f"; // b"pow_"
+
+function powAuthorHexFromHeader(header) {
+    for (const log of header.digest.logs) {
+        if (log.isPreRuntime) {
+            const [engine, data] = log.asPreRuntime;
+            if (engine.toHex() === POW_ENGINE_ID) {
+                return u8aToHex(data.slice(0, 32)).toLowerCase();
+            }
+        }
+    }
+    return null;
+}
+
+// ------------ Session ------------
+
+async function sessionContainsValidator(api, address) {
+    const set = await api.query.session.validators();
+    return set.some((id) => id.toString() === address);
+}
+
+async function waitForSessionRotations(api, n) {
+    const start = (await api.query.session.currentIndex()).toNumber();
+    const target = start + n;
+    return watchHeads(api, async () => {
+        const cur = (await api.query.session.currentIndex()).toNumber();
+        if (cur >= target) return cur;
+    });
+}
+
+// ------------------------
+
 module.exports = {
-    connect, connectAll, tryConnect, tryConnectAll, disconnectAll,
-    sleep,
-    bestNumber, finalizedNumber, sessionIndex, sessionValidators,
-    waitForFinalizedAdvance, waitForSessionRotations,
-    keyring, pair, sendAndWait,
+    connect, connectAll, disconnectAll,
+    sleep, getUri,
+    finalizedNumber, sessionContainsValidator,
+    waitForSessionRotations, watchHeads,
+    waitBlock, waitBlockAt,
+    keyring, pair, submitExtrinsic,
+    POW_ENGINE_ID, addressHex, powAuthorHexFromHeader
 };

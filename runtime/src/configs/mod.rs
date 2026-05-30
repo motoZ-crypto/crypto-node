@@ -55,7 +55,7 @@ parameter_types! {
 #[cfg(feature = "zombienet-runtime")]
 parameter_types! {
 	pub const DifficultyHalflife: u64 = 60;
-	pub const DifficultyBreakThresholdSecs: u64 = 1800;
+	pub const DifficultyBreakThresholdSecs: u64 = 120;
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -262,7 +262,7 @@ impl pallet_validator::Config for Runtime {
 
 #[cfg(feature = "zombienet-runtime")]
 parameter_types! {
-	pub const SessionPeriod: BlockNumber = 3 * MINUTES;
+	pub const SessionPeriod: BlockNumber = 5 * MINUTES;
 	pub const SessionOffset: BlockNumber = 0 * MINUTES;
 }
 
@@ -273,12 +273,12 @@ impl pallet_validator::Config for Runtime {
 	type SessionPeriod = SessionPeriod;
 	type SessionOffset = SessionOffset;
 	type LockAmount = ConstU128<{ 1 * UNIT }>;
-	type LockDuration = ConstU32<{ 20 * MINUTES }>;
+	type LockDuration = ConstU32<{ SessionPeriod::get() + 2 * MINUTES }>;
 	type LockId = ValidatorLockId;
 	type MaxValidators = ConstU32<4>;
-	type RenewInterval = ConstU32<{ 10 * MINUTES }>;
+	type RenewInterval = ConstU32<{ 3 * MINUTES }>;
 	type OfflineThreshold = ConstU32<1>;
-	type RejoinCooldownPeriod = ConstU32<{ 1 * MINUTES }>;
+	type RejoinCooldownPeriod = ConstU32<{ SessionPeriod::get() + 5 * MINUTES }>;
 }
 
 /// Adapter wiring `pallet_validator::SessionInterface` to `pallet-session`.
@@ -289,6 +289,7 @@ impl pallet_validator::SessionInterface<AccountId> for ValidatorSessionAdapter {
 	fn has_keys(who: &AccountId) -> bool {
 		pallet_session::NextKeys::<Runtime>::contains_key(who)
 	}
+	
 }
 /// `ValidatorSetWithIdentification` adapter over `pallet-session`.
 ///

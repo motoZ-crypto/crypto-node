@@ -229,21 +229,7 @@ pub fn integration_config_genesis() -> Value {
 				im_online_from_keyring(Sr25519Keyring::Charlie),
 			),
 		],
-		// Pre-register session keys for Dave and Eve so they can be
-		// promoted to active validators at runtime via `validator.lock()`
-		// without first calling `session.set_keys()`.
-		vec![
-			(
-				Sr25519Keyring::Dave.to_account_id(),
-				Ed25519Keyring::Dave.public().into(),
-				im_online_from_keyring(Sr25519Keyring::Dave),
-			),
-			(
-				Sr25519Keyring::Eve.to_account_id(),
-				Ed25519Keyring::Eve.public().into(),
-				im_online_from_keyring(Sr25519Keyring::Eve),
-			),
-		],
+		vec![],
 	)
 }
 

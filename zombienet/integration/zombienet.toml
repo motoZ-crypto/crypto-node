@@ -36,7 +36,7 @@ default_args = [
 
 [[relaychain.nodes]]
   name = "dave"
-  validator = false
+  validator = true
   args = ["--dave", "--miner", "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy"]
 
 # === Pure observer node, no mining, no validating. Used to confirm
