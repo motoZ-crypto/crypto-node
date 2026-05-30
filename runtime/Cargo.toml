@@ -132,7 +132,7 @@ std = [
 	"substrate-wasm-builder",
 ]
 
-test-runtime = []
+zombienet-runtime = []
 
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

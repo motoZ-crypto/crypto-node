@@ -46,13 +46,13 @@ parameter_types! {
 	pub const SS58Prefix: u8 = 42;
 }
 
-#[cfg(not(feature = "test-runtime"))]
+#[cfg(not(feature = "zombienet-runtime"))]
 parameter_types! {
 	pub const DifficultyHalflife: u64 = 1800;
 	pub const DifficultyBreakThresholdSecs: u64 = 1800;
 }
 
-#[cfg(feature = "test-runtime")]
+#[cfg(feature = "zombienet-runtime")]
 parameter_types! {
 	pub const DifficultyHalflife: u64 = 60;
 	pub const DifficultyBreakThresholdSecs: u64 = 1800;
@@ -236,13 +236,13 @@ parameter_types! {
 	pub const ValidatorLockId: frame_support::traits::LockIdentifier = *b"validatr";
 }
 
-#[cfg(not(feature = "test-runtime"))]
+#[cfg(not(feature = "zombienet-runtime"))]
 parameter_types! {
 	pub const SessionPeriod: BlockNumber = 10 * MINUTES;
 	pub const SessionOffset: BlockNumber = 0;
 }
 
-#[cfg(not(feature = "test-runtime"))]
+#[cfg(not(feature = "zombienet-runtime"))]
 impl pallet_validator::Config for Runtime {
 	type Currency = Balances;
 	type SessionInterface = ValidatorSessionAdapter;
@@ -260,13 +260,13 @@ impl pallet_validator::Config for Runtime {
 	type RejoinCooldownPeriod = ConstU32<{ 1 * DAYS }>;
 }
 
-#[cfg(feature = "test-runtime")]
+#[cfg(feature = "zombienet-runtime")]
 parameter_types! {
 	pub const SessionPeriod: BlockNumber = 3 * MINUTES;
 	pub const SessionOffset: BlockNumber = 0 * MINUTES;
 }
 
-#[cfg(feature = "test-runtime")]
+#[cfg(feature = "zombienet-runtime")]
 impl pallet_validator::Config for Runtime {
 	type Currency = Balances;
 	type SessionInterface = ValidatorSessionAdapter;
