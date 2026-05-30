@@ -23,11 +23,13 @@ default_args = [
 [[relaychain.nodes]]
   name = "bob"
   validator = true
+  bootnode = true
   args = ["--bob", "--miner", "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"]
 
 [[relaychain.nodes]]
   name = "charlie"
   validator = true
+  bootnode = true
   args = ["--charlie", "--miner", "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y"]
 
 # === Standby account: not an initial validator. Mines so the txpool sees its
@@ -37,6 +39,7 @@ default_args = [
 [[relaychain.nodes]]
   name = "dave"
   validator = true
+  bootnode = true
   args = ["--dave", "--miner", "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy"]
 
 # === Pure observer node, no mining, no validating. Used to confirm
@@ -45,4 +48,5 @@ default_args = [
 [[relaychain.nodes]]
   name = "eve"
   validator = false
+  bootnode = true
   args = ["--eve"]

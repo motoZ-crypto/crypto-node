@@ -59,7 +59,13 @@ run_one() {
     local sl; sl="$(slug "$s")"
     local start=$SECONDS
     echo ">>> start: $s"
-    if zombienet -p native test "$s" > "$LOG_DIR/$sl.log" 2>&1; then
+    # The zombienet binary is a `pkg`-packaged Node app that extracts its native
+    # addons into "$TMPDIR/pkg" on first launch. Concurrent launches race on
+    # creating that shared dir and crash with EEXIST. Give each worker its own
+    # TMPDIR so the extraction targets are isolated.
+    local job_tmp="$LOG_DIR/tmp-$sl"
+    mkdir -p "$job_tmp"
+    if TMPDIR="$job_tmp" zombienet -p native test "$s" > "$LOG_DIR/$sl.log" 2>&1; then
         echo "PASS" > "$LOG_DIR/$sl.status"
         echo "<<< pass:  $s ($((SECONDS - start))s)"
     else
