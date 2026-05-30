@@ -124,7 +124,7 @@ runtime-benchmarks = [
 	"sp-runtime/runtime-benchmarks",
 ]
 # Enable features for providing test values.
-test-runtime = ["solochain-template-runtime/test-runtime"]
+zombienet-runtime = ["solochain-template-runtime/zombienet-runtime"]
 # Enable features that allow the runtime to be tried and debugged.
 # Name might be subject to change in the near future.
 try-runtime = [

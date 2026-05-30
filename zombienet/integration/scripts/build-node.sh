@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Build the solochain-template-node binary with the `zombienet-runtime` feature.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+cd "$ROOT"
+
+cargo build --release -p solochain-template-node --features zombienet-runtime
+
+BIN="$ROOT/target/release/solochain-template-node"
+echo "Built: $BIN"
+"$BIN" --version
+
+# Pre-generate the raw chainspec consumed by zombienet.toml. zombienet
+# would otherwise rebuild a spec from --chain integration on every spawn
+# and overwrite our pre-registered session keys with auto-generated ones.
+SPEC="$ROOT/zombienet/integration/integration-raw.json"
+echo "Generating raw chainspec at $SPEC"
+"$BIN" build-spec --chain integration --raw --disable-default-bootnode > "$SPEC"
+echo "Raw spec: $(wc -c < "$SPEC") bytes"
