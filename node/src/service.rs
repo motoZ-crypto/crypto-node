@@ -458,12 +458,11 @@ pub fn new_full<
 
 					nonce = nonce.saturating_add(U256::one());
 
-					if nonce % 10_000 == U256::zero() {
-						if let Some(new_meta) = mining_handle.metadata() {
-							if new_meta.best_hash != best_hash {
-								break;
-							}
-						}
+					if nonce % 10_000 == U256::zero()
+						&& let Some(new_meta) = mining_handle.metadata()
+						&& new_meta.best_hash != best_hash
+					{
+						break;
 					}
 				}
 			}
