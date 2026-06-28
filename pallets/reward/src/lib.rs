@@ -58,10 +58,10 @@ pub mod pallet {
         fn find_author() -> Option<T::AccountId> {
             let digest = frame_system::Pallet::<T>::digest();
             for log in digest.logs.iter() {
-                if let sp_runtime::DigestItem::PreRuntime(engine, data) = log {
-                    if *engine == POW_ENGINE_ID {
-                        return T::AccountId::decode(&mut &data[..]).ok();
-                    }
+                if let sp_runtime::DigestItem::PreRuntime(engine, data) = log
+                    && *engine == POW_ENGINE_ID
+                {
+                    return T::AccountId::decode(&mut &data[..]).ok();
                 }
             }
             None

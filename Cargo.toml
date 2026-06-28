@@ -3,7 +3,7 @@ license = "MIT"
 authors = ["motoZ-crypto"]
 homepage = "https://github.com/motoZ-crypto/crypto"
 repository = "https://github.com/motoZ-crypto/crypto.git"
-edition = "2021"
+edition = "2024"
 
 [workspace]
 members = [

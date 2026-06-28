@@ -509,11 +509,11 @@ impl<T: Config> Pallet<T> {
     fn kick_validator(who: &T::AccountId, reason: KickReason) -> bool {
         let mut kicked = false;
         ValidatorLocks::<T>::mutate(who, |maybe_info| {
-            if let Some(info) = maybe_info {
-                if info.status == ValidatorStatus::Active {
-                    info.status = ValidatorStatus::Kicked;
-                    kicked = true;
-                }
+            if let Some(info) = maybe_info
+                && info.status == ValidatorStatus::Active
+            {
+                info.status = ValidatorStatus::Kicked;
+                kicked = true;
             }
         });
         if !kicked {
