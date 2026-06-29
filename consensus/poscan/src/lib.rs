@@ -15,7 +15,7 @@
 extern crate alloc;
 use alloc::vec::Vec;
 
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeAll, Encode};
 use sha2::{Digest, Sha256};
 use sp_core::{H256, U256};
 use spectral3d::{N_FEATURES, QUANT_STEP};
@@ -45,8 +45,6 @@ pub const POSCAN_PROTOCOL: &[u8] = b"poscan-v1|gen=asteroid|sd=4|samp=4096|eps_s
 pub struct Seal {
 	/// Nonce that satisfies the difficulty target.
 	pub nonce: U256,
-	/// Difficulty at which this seal was mined.
-	pub difficulty: U256,
 	/// Resulting scan hash.
 	pub work: H256,
 }
@@ -73,9 +71,9 @@ impl Compute {
 	}
 
 	/// Run the scan and bundle the resulting work into a [`Seal`].
-	pub fn seal(self, difficulty: U256) -> Option<Seal> {
+	pub fn seal(self) -> Option<Seal> {
 		let work = self.work()?;
-		Some(Seal { nonce: self.nonce, difficulty, work })
+		Some(Seal { nonce: self.nonce, work })
 	}
 }
 
@@ -126,7 +124,7 @@ pub fn hash_meets_difficulty(hash: &H256, difficulty: U256) -> bool {
 /// Returns `Ok(true)` only when the seal decodes, its work meets the difficulty
 /// target, and replaying the scan from `pre_hash` and `nonce` reproduces it.
 pub fn verify_seal(pre_hash: H256, raw_seal: &[u8], difficulty: U256) -> Result<bool, codec::Error> {
-	let seal = Seal::decode(&mut &raw_seal[..])?;
+	let seal = Seal::decode_all(&mut &raw_seal[..])?;
 
 	if !hash_meets_difficulty(&seal.work, difficulty) {
 		return Ok(false);
@@ -148,7 +146,7 @@ mod tests {
 			if let Some(work) = compute.work()
 				&& hash_meets_difficulty(&work, difficulty)
 			{
-				return Seal { nonce, difficulty, work };
+				return Seal { nonce, work };
 			}
 			nonce = nonce.saturating_add(U256::one());
 			assert!(nonce < U256::from(1_000u64), "should find a seal quickly at low difficulty");
@@ -219,5 +217,15 @@ mod tests {
 	fn verify_seal_rejects_malformed_bytes() {
 		let garbage = [0xDEu8, 0xAD];
 		assert!(verify_seal(H256::zero(), &garbage, U256::from(1)).is_err());
+	}
+
+	#[test]
+	fn verify_seal_rejects_trailing_bytes() {
+		let pre_hash = H256::from_low_u64_be(12345);
+		let difficulty = U256::from(1);
+		let seal = mine(pre_hash, difficulty);
+		let mut bytes = seal.encode();
+		bytes.push(0xFF);
+		assert!(verify_seal(pre_hash, &bytes, difficulty).is_err());
 	}
 }
