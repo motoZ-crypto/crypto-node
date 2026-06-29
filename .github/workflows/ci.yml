@@ -31,3 +31,35 @@ jobs:
       - name: Run tests
         run: SKIP_WASM_BUILD=1 cargo test --workspace --locked
         timeout-minutes: 30
+
+  determinism:
+    name: determinism (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasmtime
+      - name: Native golden
+        run: |
+          cargo test -p obj-asteroid --test determinism --locked
+          cargo test -p obj-asteroid --test spectral --locked golden
+        timeout-minutes: 15
+      - name: Add wasm target
+        run: rustup target add wasm32-wasip1
+      - name: Wasm golden (wasmtime)
+        env:
+          CARGO_TARGET_WASM32_WASIP1_RUNNER: "wasmtime run --"
+        run: |
+          cargo test -p obj-asteroid --test determinism --target wasm32-wasip1 --locked
+          cargo test -p obj-asteroid --test spectral --target wasm32-wasip1 --locked golden
+        timeout-minutes: 15
