@@ -7,6 +7,7 @@ edition = "2024"
 
 [workspace]
 members = [
+    "consensus/obj-asteroid",
     "consensus/sc-consensus-pow",
     "consensus/sha256pow",
     "node",
@@ -37,6 +38,10 @@ scale-info = { version = "2.11.6", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.149", default-features = false }
 codec = { version = "3.7.4", default-features = false, package = "parity-scale-codec" }
+libm = { version = "=0.2.16" }
+rand_pcg = { version = "=0.10.2", default-features = false }
+rand_core = { version = "=0.10.1", default-features = false }
+spectral3d = { git = "https://github.com/motoZ-crypto/spectral3d.git", rev = "af77fd9" }
 # precompile-utils third-party deps
 environmental = { version = "1.1.4", default-features = false }
 num_enum = { version = "0.7.6", default-features = false }
