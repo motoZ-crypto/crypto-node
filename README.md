@@ -8,11 +8,13 @@ See [docs/how-to-build.md](docs/how-to-build.md) for instructions on building th
 
 ## Mining
 
-Mine and credit rewards to the given account:
+Mine locally and credit rewards to the given account.
 
 ```bash
-./solochain-template-node --miner <YOUR_ADDRESS>
+./solochain-template-node --miner <YOUR_ADDRESS> --node-miner
 ```
+
+`--miner` sets the reward address and exposes the mining RPC (`mining_getTask`, `mining_submitSeal`) so external miners can scan off the node and submit seals. Add `--node-miner` to also run the in-process scan loop. Drop it to leave block authoring entirely to external miners.
 
 Mining never needs a private key. The node only puts the payout `AccountId` into the block header, 
 so generate a keypair offline (e.g. with `subkey generate`) and pass only the SS58 address to the mining node. 

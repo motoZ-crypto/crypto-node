@@ -10,8 +10,10 @@ use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use sha256pow::Sha256DoubleHashAlgorithm;
 use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block, AccountId};
-use sp_core::U256;
+use sp_core::{crypto::Ss58Codec, H256, U256};
 use std::{path::Path, sync::Arc, time::Duration};
+
+use crate::mining_rpc::ExternalMiner;
 
 use fc_storage::{StorageOverride, StorageOverrideHandler};
 
@@ -147,12 +149,86 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 	})
 }
 
+/// PoW algorithm in use by the node miner.
+type PowAlgo = Sha256DoubleHashAlgorithm<Block, FullClient>;
+/// Concrete mining worker handle type.
+type PowMiningHandle<L> = sc_consensus_pow::MiningHandle<Block, PowAlgo, L>;
+
+/// Operator mining configuration. The external mining RPC is always exposed.
+/// `node_miner` additionally runs the local scan loop.
+pub struct MiningConfig {
+	/// Reward and seed-bound miner address.
+	pub miner: AccountId,
+	/// Run the in-process scan loop so the node mines locally.
+	pub node_miner: bool,
+}
+
+impl<L> ExternalMiner for PowMiningHandle<L>
+where
+	L: sc_consensus::JustificationSyncLink<Block> + Send + Sync + 'static,
+{
+	fn current_task(&self) -> Option<(H256, U256)> {
+		self.metadata().map(|m| (m.pre_hash, m.difficulty))
+	}
+
+	fn submit_seal(&self, seal: Vec<u8>) -> bool {
+		futures::executor::block_on(self.submit(seal))
+	}
+}
+
+/// Run the in-process scan loop on a background thread, deriving the seed then
+/// scanning, quantizing, hashing, and submitting the first nonce that beats the
+/// target. Drops the job the moment the best chain head changes, never burning
+/// cycles on a stale parent.
+fn spawn_internal_miner<L>(mining_handle: PowMiningHandle<L>)
+where
+	L: sc_consensus::JustificationSyncLink<Block> + Send + Sync + 'static,
+{
+	std::thread::spawn(move || loop {
+		let metadata = match mining_handle.metadata() {
+			Some(m) => m,
+			None => {
+				std::thread::sleep(Duration::from_millis(100));
+				continue;
+			},
+		};
+
+		let pre_hash = metadata.pre_hash;
+		let difficulty = metadata.difficulty;
+		let best_hash = metadata.best_hash;
+
+		let mut nonce = U256::zero();
+		loop {
+			let compute = poscan::Compute { pre_hash, nonce };
+
+			if let Some(work) = compute.work()
+				&& poscan::hash_meets_difficulty(&work, difficulty)
+			{
+				let seal = poscan::Seal { nonce, work };
+				let encoded_seal = codec::Encode::encode(&seal);
+				futures::executor::block_on(mining_handle.submit(encoded_seal));
+				break;
+			}
+
+			nonce = nonce.saturating_add(U256::one());
+
+			// Each scan costs milliseconds, so checking for new work every
+			// attempt is cheap and drops stale jobs at once.
+			if let Some(new_meta) = mining_handle.metadata()
+				&& new_meta.best_hash != best_hash
+			{
+				break;
+			}
+		}
+	});
+}
+
 /// Builds a new service for a full client.
 pub fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
 	mut config: Configuration,
-	miner_account: Option<AccountId>,
+	mining: Option<MiningConfig>,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -253,6 +329,64 @@ pub fn new_full<
 
 	let frontier_backend = Arc::new(frontier_backend);
 
+	// ---------- PoW mining (external RPC, plus local scan when node_miner) ----------
+	// The proposal worker feeds both paths. Only how a seal is found differs
+	// (in-process scan vs external submission).
+	let mining_rpc: Option<(Arc<dyn ExternalMiner>, String, String)> =
+		if let Some(MiningConfig { miner, node_miner }) = mining {
+			let proposer_factory = sc_basic_authorship::ProposerFactory::new(
+				task_manager.spawn_handle(),
+				client.clone(),
+				transaction_pool.clone(),
+				prometheus_registry.as_ref(),
+				telemetry.as_ref().map(|x| x.handle()),
+			);
+
+			let algorithm = Sha256DoubleHashAlgorithm::new(client.clone());
+
+			let pow_block_import = PowBlockImport::new(
+				grandpa_block_import.clone(),
+				client.clone(),
+				algorithm.clone(),
+				0u32,
+				select_chain.clone(),
+				move |_, ()| async { Ok(sp_timestamp::InherentDataProvider::from_system_time()) },
+			);
+
+			log::info!(target: "pow", "⛏️  Miner: {}", miner);
+			let pre_runtime = codec::Encode::encode(&miner);
+
+			let (mining_handle, mining_worker) = sc_consensus_pow::start_mining_worker(
+				Box::new(pow_block_import),
+				client.clone(),
+				select_chain.clone(),
+				algorithm,
+				proposer_factory,
+				sync_service.clone(),
+				sync_service.clone(),
+				Some(pre_runtime),
+				move |_, ()| async { Ok(sp_timestamp::InherentDataProvider::from_system_time()) },
+				Duration::from_secs(5),
+				Duration::from_secs(2),
+			);
+
+			task_manager.spawn_essential_handle().spawn_blocking(
+				"pow-mining-worker",
+				Some("block-authoring"),
+				mining_worker,
+			);
+
+			if node_miner {
+				spawn_internal_miner(mining_handle.clone());
+			}
+
+			let handle: Arc<dyn ExternalMiner> = Arc::new(mining_handle);
+			let protocol = String::from_utf8_lossy(poscan::POSCAN_PROTOCOL).into_owned();
+			Some((handle, miner.to_ss58check(), protocol))
+		} else {
+			None
+		};
+
 	let rpc_extensions_builder = {
 		let client = client.clone();
 		let pool = transaction_pool.clone();
@@ -308,6 +442,14 @@ pub fn new_full<
 				pending_create_inherent_data_providers,
 			};
 
+			let mining = mining_rpc.as_ref().map(|(handle, miner, protocol)| {
+				crate::rpc::MiningDeps {
+					handle: handle.clone(),
+					miner: miner.clone(),
+					protocol: protocol.clone(),
+				}
+			});
+
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
 				pool: pool.clone(),
@@ -319,6 +461,7 @@ pub fn new_full<
 					finality_provider: finality_proof_provider.clone(),
 				},
 				eth: eth_deps,
+				mining,
 			};
 			crate::rpc::create_full(deps, subscription_executor, pubsub_notification_sinks.clone())
 				.map_err(Into::into)
@@ -385,91 +528,6 @@ pub fn new_full<
 		None,
 		sc_consensus_grandpa::run_grandpa_voter(grandpa_params)?,
 	);
-
-	if let Some(miner_address) = miner_account {
-		let proposer_factory = sc_basic_authorship::ProposerFactory::new(
-			task_manager.spawn_handle(),
-			client.clone(),
-			transaction_pool.clone(),
-			prometheus_registry.as_ref(),
-			telemetry.as_ref().map(|x| x.handle()),
-		);
-
-		let algorithm = Sha256DoubleHashAlgorithm::new(client.clone());
-
-		let pow_block_import = PowBlockImport::new(
-			grandpa_block_import.clone(),
-			client.clone(),
-			algorithm.clone(),
-			0u32,
-			select_chain.clone(),
-			move |_, ()| async { Ok(sp_timestamp::InherentDataProvider::from_system_time()) },
-		);
-
-		log::info!(target: "pow", "⛏️  Miner: {}", miner_address);
-		let pre_runtime = codec::Encode::encode(&miner_address);
-
-		let (mining_handle, mining_worker) =
-			sc_consensus_pow::start_mining_worker(
-				Box::new(pow_block_import),
-				client,
-				select_chain,
-				algorithm,
-				proposer_factory,
-				sync_service.clone(),
-				sync_service,
-				Some(pre_runtime),
-				move |_, ()| async { Ok(sp_timestamp::InherentDataProvider::from_system_time()) },
-				Duration::from_secs(5),
-				Duration::from_secs(2),
-			);
-
-		task_manager.spawn_essential_handle().spawn_blocking(
-			"pow-mining-worker",
-			Some("block-authoring"),
-			mining_worker,
-		);
-
-		std::thread::spawn(move || {
-			loop {
-				let metadata = match mining_handle.metadata() {
-					Some(m) => m,
-					None => {
-						std::thread::sleep(Duration::from_millis(100));
-						continue;
-					}
-				};
-
-				let pre_hash = metadata.pre_hash;
-				let difficulty = metadata.difficulty;
-				let best_hash = metadata.best_hash;
-
-				let mut nonce = U256::zero();
-				loop {
-					let compute = poscan::Compute { pre_hash, nonce };
-
-					if let Some(work) = compute.work()
-						&& poscan::hash_meets_difficulty(&work, difficulty)
-					{
-						let seal = poscan::Seal { nonce, work };
-						let encoded_seal = codec::Encode::encode(&seal);
-						futures::executor::block_on(mining_handle.submit(encoded_seal));
-						break;
-					}
-
-					nonce = nonce.saturating_add(U256::one());
-
-					// Each scan costs milliseconds, so checking for new work every
-					// attempt is cheap and drops stale jobs at once.
-					if let Some(new_meta) = mining_handle.metadata()
-						&& new_meta.best_hash != best_hash
-					{
-						break;
-					}
-				}
-			}
-		});
-	}
 
 	Ok(task_manager)
 }
