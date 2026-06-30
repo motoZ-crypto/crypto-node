@@ -14,6 +14,7 @@ use sp_runtime::{
 	DigestItem,
 };
 use std::{
+	collections::HashMap,
 	pin::Pin,
 	sync::{
 		atomic::{AtomicUsize, Ordering},
@@ -22,7 +23,7 @@ use std::{
 	time::Duration,
 };
 
-use crate::{PowAlgorithm, PowIntermediate, Seal, INTERMEDIATE_KEY, LOG_TARGET, POW_ENGINE_ID};
+use crate::{PowAlgorithm, Seal, LOG_TARGET, POW_ENGINE_ID};
 
 /// Mining metadata. This is the information needed to start an actual mining loop.
 #[derive(Clone, Eq, PartialEq)]
@@ -45,6 +46,26 @@ pub struct MiningBuild<Block: BlockT, Algorithm: PowAlgorithm<Block>> {
 	pub proposal: Proposal<Block>,
 }
 
+/// Every mining build kept for the current best chain head.
+///
+/// A fresh task is generated on each worker tick and stacked here, so a miner
+/// may solve any task still tied to the current head, new or old. The head
+/// moving on clears the lot.
+struct MiningBuilds<Block: BlockT, Algorithm: PowAlgorithm<Block>> {
+	/// Head every stored task builds on.
+	best_hash: Option<Block::Hash>,
+	/// Pre-hash of the most recent task, handed to fresh miners.
+	latest: Option<Block::Hash>,
+	/// Tasks keyed by pre-hash.
+	tasks: HashMap<Block::Hash, MiningBuild<Block, Algorithm>>,
+}
+
+impl<Block: BlockT, Algorithm: PowAlgorithm<Block>> Default for MiningBuilds<Block, Algorithm> {
+	fn default() -> Self {
+		Self { best_hash: None, latest: None, tasks: HashMap::new() }
+	}
+}
+
 /// Version of the mining worker.
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub struct Version(usize);
@@ -58,7 +79,7 @@ pub struct MiningHandle<
 	version: Arc<AtomicUsize>,
 	algorithm: Arc<Algorithm>,
 	justification_sync_link: Arc<L>,
-	build: Arc<Mutex<Option<MiningBuild<Block, Algorithm>>>>,
+	build: Arc<Mutex<MiningBuilds<Block, Algorithm>>>,
 	block_import: Arc<Mutex<BoxBlockImport<Block>>>,
 }
 
@@ -82,20 +103,30 @@ where
 			version: Arc::new(AtomicUsize::new(0)),
 			algorithm: Arc::new(algorithm),
 			justification_sync_link: Arc::new(justification_sync_link),
-			build: Arc::new(Mutex::new(None)),
+			build: Arc::new(Mutex::new(MiningBuilds::default())),
 			block_import: Arc::new(Mutex::new(block_import)),
 		}
 	}
 
 	pub(crate) fn on_major_syncing(&self) {
-		let mut build = self.build.lock();
-		*build = None;
+		*self.build.lock() = MiningBuilds::default();
 		self.increment_version();
 	}
 
 	pub(crate) fn on_build(&self, value: MiningBuild<Block, Algorithm>) {
-		let mut build = self.build.lock();
-		*build = Some(value);
+		let best_hash = value.metadata.best_hash;
+		let pre_hash = value.metadata.pre_hash;
+
+		let mut builds = self.build.lock();
+		if builds.best_hash != Some(best_hash) {
+			// The head moved on, so every task built on the old head is dead.
+			builds.best_hash = Some(best_hash);
+			builds.tasks.clear();
+		}
+		builds.tasks.insert(pre_hash, value);
+		builds.latest = Some(pre_hash);
+		drop(builds);
+
 		self.increment_version();
 	}
 
@@ -110,53 +141,63 @@ where
 	/// Get the current best hash. `None` if the worker has just started or the client is doing
 	/// major syncing.
 	pub fn best_hash(&self) -> Option<Block::Hash> {
-		self.build.lock().as_ref().map(|b| b.metadata.best_hash)
+		self.build.lock().best_hash
 	}
 
-	/// Get a copy of the current mining metadata, if available.
+	/// Get a copy of the most recent mining metadata, if available.
 	pub fn metadata(&self) -> Option<MiningMetadata<Block::Hash, Algorithm::Difficulty>> {
-		self.build.lock().as_ref().map(|b| b.metadata.clone())
+		let builds = self.build.lock();
+		builds.latest.and_then(|pre_hash| builds.tasks.get(&pre_hash)).map(|b| b.metadata.clone())
 	}
 
-	/// Submit a mined seal. The seal will be validated again. Returns true if the submission is successful.
+	/// Submit a seal found for `pre_hash`. The seal is validated again before
+	/// import. Returns true on a successful import. A `pre_hash` the head has
+	/// already moved past is no longer stored, so it returns false.
 	#[allow(clippy::await_holding_lock)]
-	pub async fn submit(&self, seal: Seal) -> bool {
-		if let Some(metadata) = self.metadata() {
-			match self.algorithm.verify(
-				&BlockId::Hash(metadata.best_hash),
-				&metadata.pre_hash,
-				metadata.pre_runtime.as_ref().map(|v| &v[..]),
-				&seal,
-				metadata.difficulty,
-			) {
-				Ok(true) => (),
-				Ok(false) => {
-					warn!(target: LOG_TARGET, "Unable to import mined block: seal is invalid",);
-					return false;
-				},
-				Err(err) => {
-					warn!(target: LOG_TARGET, "Unable to import mined block: {}", err,);
-					return false;
-				},
-			}
-		} else {
-			warn!(target: LOG_TARGET, "Unable to import mined block: metadata does not exist",);
-			return false;
+	pub async fn submit(&self, pre_hash: Block::Hash, seal: Seal) -> bool {
+		let metadata = match self.build.lock().tasks.get(&pre_hash) {
+			Some(build) => build.metadata.clone(),
+			None => {
+				warn!(target: LOG_TARGET, "Unable to import mined block: no task for the submitted pre-hash",);
+				return false;
+			},
+		};
+
+		// Pre-check against the same realtime difficulty import recomputes.
+		let difficulty = match self.algorithm.difficulty(metadata.best_hash) {
+			Ok(difficulty) => difficulty,
+			Err(err) => {
+				warn!(target: LOG_TARGET, "Unable to import mined block: {}", err,);
+				return false;
+			},
+		};
+
+		match self.algorithm.verify(
+			&BlockId::Hash(metadata.best_hash),
+			&metadata.pre_hash,
+			metadata.pre_runtime.as_ref().map(|v| &v[..]),
+			&seal,
+			difficulty,
+		) {
+			Ok(true) => (),
+			Ok(false) => {
+				warn!(target: LOG_TARGET, "Unable to import mined block: seal is invalid",);
+				return false;
+			},
+			Err(err) => {
+				warn!(target: LOG_TARGET, "Unable to import mined block: {}", err,);
+				return false;
+			},
 		}
 
-		let build = if let Some(build) = {
-			let mut build = self.build.lock();
-			let value = build.take();
-			if value.is_some() {
-				self.increment_version();
-			}
-			value
-		} {
-			build
-		} else {
-			warn!(target: LOG_TARGET, "Unable to import mined block: build does not exist",);
-			return false;
+		let build = match self.build.lock().tasks.remove(&pre_hash) {
+			Some(build) => build,
+			None => {
+				warn!(target: LOG_TARGET, "Unable to import mined block: task already taken",);
+				return false;
+			},
 		};
+		self.increment_version();
 
 		let seal = DigestItem::Seal(POW_ENGINE_ID, seal);
 		let (header, body) = build.proposal.block.deconstruct();
@@ -166,11 +207,6 @@ where
 		import_block.body = Some(body);
 		import_block.state_action =
 			StateAction::ApplyChanges(StorageChanges::Changes(build.proposal.storage_changes));
-
-		let intermediate = PowIntermediate::<Algorithm::Difficulty> {
-			difficulty: Some(build.metadata.difficulty),
-		};
-		import_block.insert_intermediate(INTERMEDIATE_KEY, intermediate);
 
 		let header = import_block.post_header();
 		let block_import = self.block_import.lock();
@@ -182,6 +218,10 @@ where
 					*header.number(),
 					&self.justification_sync_link,
 				);
+
+				// The block landed; drop every remaining task for the now-stale head.
+				*self.build.lock() = MiningBuilds::default();
+				self.increment_version();
 
 				info!(
 					target: LOG_TARGET,

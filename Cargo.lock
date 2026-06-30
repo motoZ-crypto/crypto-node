@@ -11176,6 +11176,7 @@ dependencies = [
  "frame-metadata-hash-extension",
  "frame-system",
  "futures",
+ "futures-timer",
  "jsonrpsee",
  "log",
  "pallet-ethereum",

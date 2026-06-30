@@ -118,16 +118,6 @@ fn aux_key<T: AsRef<[u8]>>(hash: &T) -> Vec<u8> {
 	POW_AUX_PREFIX.iter().chain(hash.as_ref()).copied().collect()
 }
 
-/// Intermediate value passed to block importer.
-#[derive(Encode, Decode, Clone, Debug, Default)]
-pub struct PowIntermediate<Difficulty> {
-	/// Difficulty of the block, if known.
-	pub difficulty: Option<Difficulty>,
-}
-
-/// Intermediate key for PoW engine.
-pub static INTERMEDIATE_KEY: &[u8] = b"pow1";
-
 /// Auxiliary storage data for PoW.
 #[derive(Encode, Decode, Clone, Debug, Default)]
 pub struct PowAux<Difficulty> {
@@ -394,13 +384,8 @@ where
 
 		let inner_seal = fetch_seal::<B>(block.post_digests.last(), block.header.hash())?;
 
-		let intermediate = block
-			.remove_intermediate::<PowIntermediate<Algorithm::Difficulty>>(INTERMEDIATE_KEY)?;
-
-		let difficulty = match intermediate.difficulty {
-			Some(difficulty) => difficulty,
-			None => self.algorithm.difficulty(parent_hash)?,
-		};
+		// Recompute difficulty from the parent at import, not from the block or submitter.
+		let difficulty = self.algorithm.difficulty(parent_hash)?;
 
 		let pre_hash = block.header.hash();
 		let pre_digest = find_pre_digest::<B>(&block.header)?;
@@ -507,10 +492,8 @@ where
 		let hash = block.header.hash();
 		let (checked_header, seal) = self.check_header(block.header)?;
 
-		let intermediate = PowIntermediate::<Algorithm::Difficulty> { difficulty: None };
 		block.header = checked_header;
 		block.post_digests.push(seal);
-		block.insert_intermediate(INTERMEDIATE_KEY, intermediate);
 		block.post_hash = Some(hash);
 
 		Ok(block)
@@ -604,12 +587,9 @@ where
 			};
 			let best_hash = best_header.hash();
 
-			if worker.best_hash() == Some(best_hash) {
-				continue;
-			}
-
-			// The worker is locked for the duration of the whole proposing period. Within this
-			// period, the mining target is outdated and useless anyway.
+			// A fresh task is built every tick, even on an unchanged head, so
+			// miners keep getting a recent timestamp. on_build stacks it next to
+			// the head's earlier tasks instead of replacing them.
 
 			let difficulty = match algorithm.difficulty(best_hash) {
 				Ok(x) => x,

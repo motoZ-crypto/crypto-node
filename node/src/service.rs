@@ -171,8 +171,8 @@ where
 		self.metadata().map(|m| (m.pre_hash, m.difficulty))
 	}
 
-	fn submit_seal(&self, seal: Vec<u8>) -> bool {
-		futures::executor::block_on(self.submit(seal))
+	fn submit_seal(&self, pre_hash: H256, seal: Vec<u8>) -> bool {
+		futures::executor::block_on(self.submit(pre_hash, seal))
 	}
 }
 
@@ -206,7 +206,7 @@ where
 			{
 				let seal = poscan::Seal { nonce, work };
 				let encoded_seal = codec::Encode::encode(&seal);
-				futures::executor::block_on(mining_handle.submit(encoded_seal));
+				futures::executor::block_on(mining_handle.submit(pre_hash, encoded_seal));
 				break;
 			}
 
@@ -366,7 +366,7 @@ pub fn new_full<
 				sync_service.clone(),
 				Some(pre_runtime),
 				move |_, ()| async { Ok(sp_timestamp::InherentDataProvider::from_system_time()) },
-				Duration::from_secs(5),
+				Duration::from_secs(1),
 				Duration::from_secs(2),
 			);
 

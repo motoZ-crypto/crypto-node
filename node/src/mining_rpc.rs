@@ -1,25 +1,33 @@
 //! External mining RPC.
 //!
-//! Lets miners running outside the node pull the current mining task and submit
-//! a seal they found. The node revalidates every submission through the regular
-//! import path, so external compute is never trusted. The seal carries only the
-//! nonce and work; the reward address is pinned in the pre-runtime digest the
-//! node builds, so an external miner cannot redirect the reward.
+//! Lets miners running outside the node pull or subscribe to the current mining
+//! task and submit a seal they found. The node revalidates every submission
+//! through the regular import path, so external compute is never trusted. The
+//! seal carries only the nonce and work; the reward address is pinned in the
+//! pre-runtime digest the node builds, so an external miner cannot redirect the
+//! reward.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
+use futures_timer::Delay;
 use jsonrpsee::{
-	core::{async_trait, RpcResult},
+	core::{
+		async_trait,
+		server::{PendingSubscriptionSink, SubscriptionMessage},
+		RpcResult, SubscriptionResult,
+	},
 	proc_macros::rpc,
 	types::ErrorObjectOwned,
 };
 use serde::{Deserialize, Serialize};
 use sp_core::{Bytes, H256, U256};
 
-/// No mining build exists yet (worker just started or syncing).
+/// Push a fresh task to subscribers on this cadence, matching the new-task
+/// generation interval.
+const TASK_INTERVAL: Duration = Duration::from_secs(1);
+
+/// No mining task exists yet (worker just started or syncing).
 const NO_TASK: i32 = 9001;
-/// Submission targets a pre-hash the best chain head has already moved past.
-const STALE_TASK: i32 = 9002;
 
 /// The mining worker as the RPC sees it, reading the live task and handing a seal
 /// back for import. Keeps the consensus generics out of the RPC layer.
@@ -27,12 +35,15 @@ const STALE_TASK: i32 = 9002;
 /// `submit_seal` blocks on the full import, so callers must run it off the async
 /// executor.
 pub trait ExternalMiner: Send + Sync {
-	/// Pre-hash and difficulty of the current build, or `None` before the first
-	/// build lands.
+	/// Pre-hash and difficulty of the most recent task, or `None` before the
+	/// first build lands.
 	fn current_task(&self) -> Option<(H256, U256)>;
 
-	/// Revalidate and import a raw seal. Returns `true` when the block imports.
-	fn submit_seal(&self, seal: Vec<u8>) -> bool;
+	/// Revalidate and import the seal found for `pre_hash`. Returns `true` when
+	/// the block imports. Any task still tied to the current head is accepted,
+	/// new or old; a `pre_hash` the head has moved past is gone, so it returns
+	/// `false`.
+	fn submit_seal(&self, pre_hash: H256, seal: Vec<u8>) -> bool;
 }
 
 /// Everything an external miner needs to compute the work for one task.
@@ -56,8 +67,16 @@ pub trait MiningApi {
 	#[method(name = "mining_getTask")]
 	fn get_task(&self) -> RpcResult<MiningTask>;
 
-	/// Submit a seal found for `pre_hash`. Rejected when `pre_hash` no longer
-	/// matches the current task.
+	/// Stream the current task, pushing a fresh one on every new-task tick.
+	#[subscription(
+		name = "mining_subscribeTask" => "mining_task",
+		unsubscribe = "mining_unsubscribeTask",
+		item = MiningTask
+	)]
+	async fn subscribe_task(&self) -> SubscriptionResult;
+
+	/// Submit a seal found for `pre_hash`. Any task still live on the current
+	/// head is accepted; a submission the head has moved past returns `false`.
 	#[method(name = "mining_submitSeal")]
 	async fn submit_seal(&self, pre_hash: H256, seal: Bytes) -> RpcResult<bool>;
 }
@@ -77,28 +96,42 @@ impl Mining {
 	}
 }
 
+/// Snapshot the worker's current task into a wire `MiningTask`, if one exists.
+fn task_of(handle: &dyn ExternalMiner, miner: &str, protocol: &str) -> Option<MiningTask> {
+	handle.current_task().map(|(pre_hash, difficulty)| MiningTask {
+		pre_hash,
+		difficulty,
+		miner: miner.to_owned(),
+		protocol: protocol.to_owned(),
+	})
+}
+
 #[async_trait]
 impl MiningApiServer for Mining {
 	fn get_task(&self) -> RpcResult<MiningTask> {
-		let (pre_hash, difficulty) = self.handle.current_task().ok_or_else(no_task)?;
-		Ok(MiningTask {
-			pre_hash,
-			difficulty,
-			miner: self.miner.clone(),
-			protocol: self.protocol.clone(),
-		})
+		task_of(&*self.handle, &self.miner, &self.protocol).ok_or_else(no_task)
+	}
+
+	async fn subscribe_task(&self, pending: PendingSubscriptionSink) -> SubscriptionResult {
+		let sink = pending.accept().await?;
+		let mut first = true;
+		loop {
+			if !first {
+				Delay::new(TASK_INTERVAL).await;
+			}
+			first = false;
+
+			if let Some(task) = task_of(&*self.handle, &self.miner, &self.protocol) {
+				if sink.send(SubscriptionMessage::from_json(&task)?).await.is_err() {
+					break;
+				}
+			}
+		}
+		Ok(())
 	}
 
 	async fn submit_seal(&self, pre_hash: H256, seal: Bytes) -> RpcResult<bool> {
-		let (current, _) = self.handle.current_task().ok_or_else(no_task)?;
-		if pre_hash != current {
-			return Err(ErrorObjectOwned::owned(
-				STALE_TASK,
-				"stale pre_hash, the best chain head moved on",
-				None::<()>,
-			));
-		}
-		Ok(self.handle.submit_seal(seal.0))
+		Ok(self.handle.submit_seal(pre_hash, seal.0))
 	}
 }
 
@@ -111,27 +144,27 @@ mod tests {
 	use super::*;
 	use std::sync::Mutex;
 
-	/// Records submitted seals and returns a fixed task and import verdict.
+	/// Records every submission and accepts seals for a fixed set of live tasks.
 	struct MockMiner {
-		task: Option<(H256, U256)>,
-		imported: bool,
-		submitted: Mutex<Vec<Vec<u8>>>,
+		latest: Option<(H256, U256)>,
+		live: Vec<H256>,
+		submitted: Mutex<Vec<(H256, Vec<u8>)>>,
 	}
 
 	impl MockMiner {
-		fn new(task: Option<(H256, U256)>, imported: bool) -> Arc<Self> {
-			Arc::new(Self { task, imported, submitted: Mutex::new(Vec::new()) })
+		fn new(latest: Option<(H256, U256)>, live: Vec<H256>) -> Arc<Self> {
+			Arc::new(Self { latest, live, submitted: Mutex::new(Vec::new()) })
 		}
 	}
 
 	impl ExternalMiner for MockMiner {
 		fn current_task(&self) -> Option<(H256, U256)> {
-			self.task
+			self.latest
 		}
 
-		fn submit_seal(&self, seal: Vec<u8>) -> bool {
-			self.submitted.lock().unwrap().push(seal);
-			self.imported
+		fn submit_seal(&self, pre_hash: H256, seal: Vec<u8>) -> bool {
+			self.submitted.lock().unwrap().push((pre_hash, seal));
+			self.live.contains(&pre_hash)
 		}
 	}
 
@@ -142,7 +175,7 @@ mod tests {
 	#[test]
 	fn get_task_exposes_full_inputs() {
 		let pre_hash = H256::from_low_u64_be(1);
-		let mock = MockMiner::new(Some((pre_hash, U256::from(7))), true);
+		let mock = MockMiner::new(Some((pre_hash, U256::from(7))), vec![pre_hash]);
 		let task = mining(mock).get_task().expect("task is available");
 		assert_eq!(task.pre_hash, pre_hash);
 		assert_eq!(task.difficulty, U256::from(7));
@@ -152,39 +185,44 @@ mod tests {
 
 	#[test]
 	fn get_task_without_build_errors() {
-		let err = mining(MockMiner::new(None, true)).get_task().unwrap_err();
+		let err = mining(MockMiner::new(None, vec![])).get_task().unwrap_err();
 		assert_eq!(err.code(), NO_TASK);
 	}
 
 	#[test]
-	fn submit_seal_imports_for_current_pre_hash() {
+	fn submit_seal_imports_live_task() {
 		let pre_hash = H256::from_low_u64_be(2);
-		let mock = MockMiner::new(Some((pre_hash, U256::from(1))), true);
+		let mock = MockMiner::new(Some((pre_hash, U256::from(1))), vec![pre_hash]);
 		let imported = futures::executor::block_on(
 			mining(mock.clone()).submit_seal(pre_hash, Bytes(vec![1, 2, 3])),
 		)
 		.expect("submission runs");
 		assert!(imported);
-		assert_eq!(mock.submitted.lock().unwrap().as_slice(), &[vec![1, 2, 3]]);
+		assert_eq!(mock.submitted.lock().unwrap().as_slice(), &[(pre_hash, vec![1, 2, 3])]);
 	}
 
 	#[test]
-	fn submit_seal_rejects_stale_pre_hash() {
-		let mock = MockMiner::new(Some((H256::from_low_u64_be(2), U256::from(1))), true);
-		let err = futures::executor::block_on(
+	fn submit_seal_accepts_old_same_head_task() {
+		let old = H256::from_low_u64_be(2);
+		let latest = H256::from_low_u64_be(3);
+		// `latest` is the freshest task, yet a seal for the older `old` still
+		// imports because both are live on the current head.
+		let mock = MockMiner::new(Some((latest, U256::from(1))), vec![old, latest]);
+		let imported =
+			futures::executor::block_on(mining(mock.clone()).submit_seal(old, Bytes(vec![9])))
+				.expect("submission runs");
+		assert!(imported);
+		assert_eq!(mock.submitted.lock().unwrap().as_slice(), &[(old, vec![9])]);
+	}
+
+	#[test]
+	fn submit_seal_rejects_pre_hash_past_the_head() {
+		let latest = H256::from_low_u64_be(3);
+		let mock = MockMiner::new(Some((latest, U256::from(1))), vec![latest]);
+		let imported = futures::executor::block_on(
 			mining(mock.clone()).submit_seal(H256::from_low_u64_be(9), Bytes(vec![1])),
 		)
-		.unwrap_err();
-		assert_eq!(err.code(), STALE_TASK);
-		assert!(mock.submitted.lock().unwrap().is_empty(), "stale seal must not reach import");
-	}
-
-	#[test]
-	fn submit_seal_without_build_errors() {
-		let err = futures::executor::block_on(
-			mining(MockMiner::new(None, true)).submit_seal(H256::zero(), Bytes(vec![1])),
-		)
-		.unwrap_err();
-		assert_eq!(err.code(), NO_TASK);
+		.expect("submission runs");
+		assert!(!imported);
 	}
 }
