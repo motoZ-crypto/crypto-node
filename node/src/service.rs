@@ -353,7 +353,7 @@ pub fn new_full<
 				move |_, ()| async { Ok(sp_timestamp::InherentDataProvider::from_system_time()) },
 			);
 
-			log::info!(target: "pow", "⛏️  Miner: {}", miner);
+			log::info!(target: "pow", "👛 Miner: {}", miner);
 			let pre_runtime = codec::Encode::encode(&miner);
 
 			let (mining_handle, mining_worker) = sc_consensus_pow::start_mining_worker(
