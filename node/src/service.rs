@@ -155,12 +155,13 @@ type PowAlgo = PoScanAlgorithm<Block, FullClient>;
 type PowMiningHandle<L> = sc_consensus_pow::MiningHandle<Block, PowAlgo, L>;
 
 /// Operator mining configuration. The external mining RPC is always exposed.
-/// `node_miner` additionally runs the local scan loop.
+/// `node_miner` is the local scan thread count, zero when the node only relays
+/// work to external miners.
 pub struct MiningConfig {
 	/// Reward and seed-bound miner address.
 	pub miner: AccountId,
-	/// Run the in-process scan loop so the node mines locally.
-	pub node_miner: bool,
+	/// Local scan threads. Zero disables the in-process miner.
+	pub node_miner: usize,
 }
 
 impl<L> ExternalMiner for PowMiningHandle<L>
@@ -184,12 +185,12 @@ struct BestSolution {
 	max_difficulty: U256,
 }
 
-/// Run the in-process scan loop on a background thread
-fn spawn_internal_miner<L>(mining_handle: PowMiningHandle<L>)
+/// Run the in-process scan loop on a background thread.
+fn spawn_internal_miner<L>(mining_handle: PowMiningHandle<L>, start: U256, stride: U256)
 where
 	L: sc_consensus::JustificationSyncLink<Block> + Send + Sync + 'static,
 {
-	let mut nonce = U256::zero();
+	let mut nonce = start;
 	let mut best: Option<BestSolution> = None;
 
 	std::thread::spawn(move || loop {
@@ -210,7 +211,7 @@ where
 		}
 
 		let compute = poscan::Compute { pre_hash, nonce };
-		nonce = nonce.overflowing_add(U256::one()).0;
+		nonce = nonce.overflowing_add(stride).0;
 
 		if let Some(work) = compute.work() {
 			let num_hash = U256::from_big_endian(work.as_bytes());
@@ -387,8 +388,12 @@ pub fn new_full<
 				mining_worker,
 			);
 
-			if node_miner {
-				spawn_internal_miner(mining_handle.clone());
+			for i in 0..node_miner {
+				spawn_internal_miner(
+					mining_handle.clone(),
+					U256::from(i),
+					U256::from(node_miner),
+				);
 			}
 
 			let handle: Arc<dyn ExternalMiner> = Arc::new(mining_handle);

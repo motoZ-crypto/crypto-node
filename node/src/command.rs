@@ -184,14 +184,17 @@ pub fn run() -> sc_cli::Result<()> {
 				.transpose()
 				.map_err(sc_cli::Error::Input)?;
 
-			if miner_account.is_none() && cli.node_miner {
+			if miner_account.is_none() && cli.node_miner.is_some() {
 				return Err(sc_cli::Error::Input("--node-miner requires --miner".into()));
 			}
 
-			let mining = miner_account.map(|miner| service::MiningConfig {
-				miner,
-				node_miner: cli.node_miner,
-			});
+			let node_miner = match cli.node_miner {
+				None => 0,
+				Some(0) => std::thread::available_parallelism().map(|c| c.get()).unwrap_or(1),
+				Some(n) => n,
+			};
+
+			let mining = miner_account.map(|miner| service::MiningConfig { miner, node_miner });
 
 			let runner = cli.create_runner(&cli.run)?;
 			runner.run_node_until_exit(|config| async move {
