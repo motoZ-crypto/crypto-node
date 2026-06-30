@@ -14,7 +14,7 @@ use sp_runtime::{
 	DigestItem,
 };
 use std::{
-	collections::HashMap,
+	collections::VecDeque,
 	pin::Pin,
 	sync::{
 		atomic::{AtomicUsize, Ordering},
@@ -46,25 +46,11 @@ pub struct MiningBuild<Block: BlockT, Algorithm: PowAlgorithm<Block>> {
 	pub proposal: Proposal<Block>,
 }
 
-/// Every mining build kept for the current best chain head.
-///
-/// A fresh task is generated on each worker tick and stacked here, so a miner
-/// may solve any task still tied to the current head, new or old. The head
-/// moving on clears the lot.
-struct MiningBuilds<Block: BlockT, Algorithm: PowAlgorithm<Block>> {
-	/// Head every stored task builds on.
-	best_hash: Option<Block::Hash>,
-	/// Pre-hash of the most recent task, handed to fresh miners.
-	latest: Option<Block::Hash>,
-	/// Tasks keyed by pre-hash.
-	tasks: HashMap<Block::Hash, MiningBuild<Block, Algorithm>>,
-}
-
-impl<Block: BlockT, Algorithm: PowAlgorithm<Block>> Default for MiningBuilds<Block, Algorithm> {
-	fn default() -> Self {
-		Self { best_hash: None, latest: None, tasks: HashMap::new() }
-	}
-}
+/// Cap on builds retained for one head. A fresh task lands each tick, so without
+/// a bound a stalled head would leak one full proposal per second. Past the cap
+/// the oldest build is evicted; a miner still on it gets `false` from submit and
+/// just pulls a newer task.
+const MAX_LIVE_TASKS: usize = 256;
 
 /// Version of the mining worker.
 #[derive(Eq, PartialEq, Clone, Copy)]
@@ -79,7 +65,10 @@ pub struct MiningHandle<
 	version: Arc<AtomicUsize>,
 	algorithm: Arc<Algorithm>,
 	justification_sync_link: Arc<L>,
-	build: Arc<Mutex<MiningBuilds<Block, Algorithm>>>,
+	/// Builds for the current head, oldest first. A fresh task stacks on each
+	/// tick so a miner may solve any one still tied to the head; the head moving
+	/// on clears the lot. Bounded by `MAX_LIVE_TASKS`.
+	build: Arc<Mutex<VecDeque<MiningBuild<Block, Algorithm>>>>,
 	block_import: Arc<Mutex<BoxBlockImport<Block>>>,
 }
 
@@ -103,28 +92,28 @@ where
 			version: Arc::new(AtomicUsize::new(0)),
 			algorithm: Arc::new(algorithm),
 			justification_sync_link: Arc::new(justification_sync_link),
-			build: Arc::new(Mutex::new(MiningBuilds::default())),
+			build: Arc::new(Mutex::new(VecDeque::new())),
 			block_import: Arc::new(Mutex::new(block_import)),
 		}
 	}
 
 	pub(crate) fn on_major_syncing(&self) {
-		*self.build.lock() = MiningBuilds::default();
+		self.build.lock().clear();
 		self.increment_version();
 	}
 
 	pub(crate) fn on_build(&self, value: MiningBuild<Block, Algorithm>) {
 		let best_hash = value.metadata.best_hash;
-		let pre_hash = value.metadata.pre_hash;
 
 		let mut builds = self.build.lock();
-		if builds.best_hash != Some(best_hash) {
-			// The head moved on, so every task built on the old head is dead.
-			builds.best_hash = Some(best_hash);
-			builds.tasks.clear();
+		if builds.back().map(|b| b.metadata.best_hash) != Some(best_hash) {
+			// The head moved on, so every build on the old head is dead.
+			builds.clear();
 		}
-		builds.tasks.insert(pre_hash, value);
-		builds.latest = Some(pre_hash);
+		builds.push_back(value);
+		while builds.len() > MAX_LIVE_TASKS {
+			builds.pop_front();
+		}
 		drop(builds);
 
 		self.increment_version();
@@ -141,13 +130,12 @@ where
 	/// Get the current best hash. `None` if the worker has just started or the client is doing
 	/// major syncing.
 	pub fn best_hash(&self) -> Option<Block::Hash> {
-		self.build.lock().best_hash
+		self.build.lock().back().map(|b| b.metadata.best_hash)
 	}
 
 	/// Get a copy of the most recent mining metadata, if available.
 	pub fn metadata(&self) -> Option<MiningMetadata<Block::Hash, Algorithm::Difficulty>> {
-		let builds = self.build.lock();
-		builds.latest.and_then(|pre_hash| builds.tasks.get(&pre_hash)).map(|b| b.metadata.clone())
+		self.build.lock().back().map(|b| b.metadata.clone())
 	}
 
 	/// Submit a seal found for `pre_hash`. The seal is validated again before
@@ -155,7 +143,7 @@ where
 	/// already moved past is no longer stored, so it returns false.
 	#[allow(clippy::await_holding_lock)]
 	pub async fn submit(&self, pre_hash: Block::Hash, seal: Seal) -> bool {
-		let metadata = match self.build.lock().tasks.get(&pre_hash) {
+		let metadata = match self.build.lock().iter().find(|b| b.metadata.pre_hash == pre_hash) {
 			Some(build) => build.metadata.clone(),
 			None => {
 				warn!(target: LOG_TARGET, "Unable to import mined block: no task for the submitted pre-hash",);
@@ -190,12 +178,15 @@ where
 			},
 		}
 
-		let build = match self.build.lock().tasks.remove(&pre_hash) {
-			Some(build) => build,
-			None => {
-				warn!(target: LOG_TARGET, "Unable to import mined block: task already taken",);
-				return false;
-			},
+		let build = {
+			let mut builds = self.build.lock();
+			match builds.iter().position(|b| b.metadata.pre_hash == pre_hash) {
+				Some(i) => builds.remove(i).expect("position is in bounds"),
+				None => {
+					warn!(target: LOG_TARGET, "Unable to import mined block: task already taken",);
+					return false;
+				},
+			}
 		};
 		self.increment_version();
 
@@ -219,8 +210,8 @@ where
 					&self.justification_sync_link,
 				);
 
-				// The block landed; drop every remaining task for the now-stale head.
-				*self.build.lock() = MiningBuilds::default();
+				// The block landed; drop every remaining build for the now-stale head.
+				self.build.lock().clear();
 				self.increment_version();
 
 				info!(

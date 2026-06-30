@@ -29,6 +29,9 @@ const TASK_INTERVAL: Duration = Duration::from_secs(1);
 /// No mining task exists yet (worker just started or syncing).
 const NO_TASK: i32 = 9001;
 
+/// The blocking import task failed to run to completion.
+const SUBMIT_FAILED: i32 = 9002;
+
 /// The mining worker as the RPC sees it, reading the live task and handing a seal
 /// back for import. Keeps the consensus generics out of the RPC layer.
 ///
@@ -131,7 +134,14 @@ impl MiningApiServer for Mining {
 	}
 
 	async fn submit_seal(&self, pre_hash: H256, seal: Bytes) -> RpcResult<bool> {
-		Ok(self.handle.submit_seal(pre_hash, seal.0))
+		// `submit_seal` blocks on a full block import, so move it onto the
+		// blocking pool and keep the RPC reactor free for other callers.
+		let handle = self.handle.clone();
+		tokio::task::spawn_blocking(move || handle.submit_seal(pre_hash, seal.0))
+			.await
+			.map_err(|err| {
+				ErrorObjectOwned::owned(SUBMIT_FAILED, format!("submit task failed: {err}"), None::<()>)
+			})
 	}
 }
 
@@ -189,40 +199,41 @@ mod tests {
 		assert_eq!(err.code(), NO_TASK);
 	}
 
-	#[test]
-	fn submit_seal_imports_live_task() {
+	#[tokio::test]
+	async fn submit_seal_imports_live_task() {
 		let pre_hash = H256::from_low_u64_be(2);
 		let mock = MockMiner::new(Some((pre_hash, U256::from(1))), vec![pre_hash]);
-		let imported = futures::executor::block_on(
-			mining(mock.clone()).submit_seal(pre_hash, Bytes(vec![1, 2, 3])),
-		)
-		.expect("submission runs");
+		let imported = mining(mock.clone())
+			.submit_seal(pre_hash, Bytes(vec![1, 2, 3]))
+			.await
+			.expect("submission runs");
 		assert!(imported);
 		assert_eq!(mock.submitted.lock().unwrap().as_slice(), &[(pre_hash, vec![1, 2, 3])]);
 	}
 
-	#[test]
-	fn submit_seal_accepts_old_same_head_task() {
+	#[tokio::test]
+	async fn submit_seal_accepts_old_same_head_task() {
 		let old = H256::from_low_u64_be(2);
 		let latest = H256::from_low_u64_be(3);
 		// `latest` is the freshest task, yet a seal for the older `old` still
 		// imports because both are live on the current head.
 		let mock = MockMiner::new(Some((latest, U256::from(1))), vec![old, latest]);
-		let imported =
-			futures::executor::block_on(mining(mock.clone()).submit_seal(old, Bytes(vec![9])))
-				.expect("submission runs");
+		let imported = mining(mock.clone())
+			.submit_seal(old, Bytes(vec![9]))
+			.await
+			.expect("submission runs");
 		assert!(imported);
 		assert_eq!(mock.submitted.lock().unwrap().as_slice(), &[(old, vec![9])]);
 	}
 
-	#[test]
-	fn submit_seal_rejects_pre_hash_past_the_head() {
+	#[tokio::test]
+	async fn submit_seal_rejects_pre_hash_past_the_head() {
 		let latest = H256::from_low_u64_be(3);
 		let mock = MockMiner::new(Some((latest, U256::from(1))), vec![latest]);
-		let imported = futures::executor::block_on(
-			mining(mock.clone()).submit_seal(H256::from_low_u64_be(9), Bytes(vec![1])),
-		)
-		.expect("submission runs");
+		let imported = mining(mock.clone())
+			.submit_seal(H256::from_low_u64_be(9), Bytes(vec![1]))
+			.await
+			.expect("submission runs");
 		assert!(!imported);
 	}
 }

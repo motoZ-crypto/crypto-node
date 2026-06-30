@@ -26,6 +26,7 @@ frame-system.workspace = true
 futures = { features = ["thread-pool"], workspace = true }
 futures-timer.workspace = true
 jsonrpsee = { features = ["server", "macros"], workspace = true }
+tokio = { features = ["rt"], workspace = true }
 log.workspace = true
 serde = { workspace = true, default-features = true }
 pallet-transaction-payment-rpc.default-features = true
@@ -109,6 +110,9 @@ fc-storage.workspace = true
 fp-rpc = { workspace = true, default-features = true }
 fp-evm = { workspace = true, default-features = true }
 pallet-ethereum = { workspace = true, default-features = true }
+
+[dev-dependencies]
+tokio = { features = ["rt", "macros"], workspace = true }
 
 [build-dependencies]
 substrate-build-script-utils.default-features = true
