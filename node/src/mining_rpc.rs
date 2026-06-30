@@ -124,10 +124,10 @@ impl MiningApiServer for Mining {
 			}
 			first = false;
 
-			if let Some(task) = task_of(&*self.handle, &self.miner, &self.protocol) {
-				if sink.send(SubscriptionMessage::from_json(&task)?).await.is_err() {
-					break;
-				}
+			if let Some(task) = task_of(&*self.handle, &self.miner, &self.protocol)
+				&& sink.send(SubscriptionMessage::from_json(&task)?).await.is_err()
+			{
+				break;
 			}
 		}
 		Ok(())
