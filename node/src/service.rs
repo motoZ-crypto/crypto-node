@@ -1,6 +1,7 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::FutureExt;
+use poscan_pow::PoScanAlgorithm;
 use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::LongestChain;
 use sc_consensus_grandpa::{GrandpaBlockImport, LinkHalf, SharedVoterState};
@@ -8,7 +9,6 @@ use sc_consensus_pow::PowBlockImport;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use sha256pow::Sha256DoubleHashAlgorithm;
 use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block, AccountId};
 use sp_core::{crypto::Ss58Codec, H256, U256};
 use std::{path::Path, sync::Arc, time::Duration};
@@ -100,7 +100,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		.build(),
 	);
 
-	let algorithm = Sha256DoubleHashAlgorithm::new(client.clone());
+	let algorithm = PoScanAlgorithm::new(client.clone());
 
 	let (grandpa_block_import, grandpa_link) = sc_consensus_grandpa::block_import(
 		client.clone(),
@@ -150,7 +150,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 }
 
 /// PoW algorithm in use by the node miner.
-type PowAlgo = Sha256DoubleHashAlgorithm<Block, FullClient>;
+type PowAlgo = PoScanAlgorithm<Block, FullClient>;
 /// Concrete mining worker handle type.
 type PowMiningHandle<L> = sc_consensus_pow::MiningHandle<Block, PowAlgo, L>;
 
@@ -342,7 +342,7 @@ pub fn new_full<
 				telemetry.as_ref().map(|x| x.handle()),
 			);
 
-			let algorithm = Sha256DoubleHashAlgorithm::new(client.clone());
+			let algorithm = PoScanAlgorithm::new(client.clone());
 
 			let pow_block_import = PowBlockImport::new(
 				grandpa_block_import.clone(),

@@ -8032,6 +8032,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "poscan-pow"
+version = "0.1.0"
+dependencies = [
+ "pallet-difficulty",
+ "parity-scale-codec",
+ "sc-consensus-pow",
+ "sp-api",
+ "sp-blockchain",
+ "sp-consensus-pow",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
 name = "postcard"
 version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10859,21 +10873,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha256pow"
-version = "0.1.0"
-dependencies = [
- "pallet-difficulty",
- "parity-scale-codec",
- "sc-consensus-pow",
- "sha2 0.11.0",
- "sp-api",
- "sp-blockchain",
- "sp-consensus-pow",
- "sp-core",
- "sp-runtime",
-]
-
-[[package]]
 name = "sha3"
 version = "0.10.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11184,6 +11183,7 @@ dependencies = [
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
  "poscan",
+ "poscan-pow",
  "sc-basic-authorship",
  "sc-cli",
  "sc-client-api",
@@ -11202,7 +11202,6 @@ dependencies = [
  "sc-transaction-pool-api",
  "serde",
  "serde_json",
- "sha256pow",
  "solochain-template-runtime",
  "sp-api",
  "sp-block-builder",
@@ -11259,9 +11258,9 @@ dependencies = [
  "pallet-validator",
  "parity-scale-codec",
  "poscan",
+ "poscan-pow",
  "scale-info",
  "serde_json",
- "sha256pow",
  "sp-api",
  "sp-block-builder",
  "sp-consensus-grandpa",

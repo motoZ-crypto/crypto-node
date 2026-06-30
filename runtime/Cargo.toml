@@ -50,7 +50,7 @@ ethereum = { workspace = true }
 scale-info = { features = ["derive", "serde"], workspace = true }
 serde_json = { workspace = true, default-features = false, features = ["alloc"] }
 poscan.workspace = true
-sha256pow.workspace = true
+poscan-pow.workspace = true
 sp-api.workspace = true
 sp-block-builder.workspace = true
 sp-consensus-grandpa = { features = ["serde"], workspace = true }
@@ -114,7 +114,7 @@ std = [
 	"scale-info/std",
 	"serde_json/std",
 	"poscan/std",
-	"sha256pow/std",
+	"poscan-pow/std",
 	"sp-api/std",
 	"sp-block-builder/std",
 	"sp-consensus-grandpa/std",
