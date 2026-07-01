@@ -183,6 +183,19 @@ pub fn run() -> sc_cli::Result<()> {
 				})
 				.transpose()
 				.map_err(sc_cli::Error::Input)?;
+
+			if miner_account.is_none() && cli.node_miner.is_some() {
+				return Err(sc_cli::Error::Input("--node-miner requires --miner".into()));
+			}
+
+			let node_miner = match cli.node_miner {
+				None => 0,
+				Some(0) => std::thread::available_parallelism().map(|c| c.get()).unwrap_or(1),
+				Some(n) => n,
+			};
+
+			let mining = miner_account.map(|miner| service::MiningConfig { miner, node_miner });
+
 			let runner = cli.create_runner(&cli.run)?;
 			runner.run_node_until_exit(|config| async move {
 				match config.network.network_backend {
@@ -191,10 +204,10 @@ pub fn run() -> sc_cli::Result<()> {
 							solochain_template_runtime::opaque::Block,
 							<solochain_template_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
 						>,
-					>(config, miner_account)
+					>(config, mining)
 					.map_err(sc_cli::Error::Service),
 					sc_network::config::NetworkBackendType::Litep2p =>
-						service::new_full::<sc_network::Litep2pNetworkBackend>(config, miner_account)
+						service::new_full::<sc_network::Litep2pNetworkBackend>(config, mining)
 							.map_err(sc_cli::Error::Service),
 				}
 			})

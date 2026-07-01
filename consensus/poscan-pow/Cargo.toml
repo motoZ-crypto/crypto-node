@@ -1,6 +1,6 @@
 [package]
-name = "sha256pow"
-description = "SHA-256 double-hash PoW placeholder algorithm for the crypto chain."
+name = "poscan-pow"
+description = "Runtime-delegated PoW consensus for the PoScan chain (node algorithm plus runtime verify API)."
 version = "0.1.0"
 license.workspace = true
 authors.workspace = true
@@ -12,7 +12,6 @@ publish = false
 [dependencies]
 codec = { features = ["derive"], workspace = true }
 pallet-difficulty.workspace = true
-sha2.workspace = true
 sp-api.workspace = true
 sp-consensus-pow.workspace = true
 sp-core.workspace = true

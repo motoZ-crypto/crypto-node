@@ -90,7 +90,7 @@ fn testnet_genesis_with_extra_keys(
 ) -> Value {
 	let total_supply: u128 = 1_000_000_000 * UNIT;
 	let balance_per_account = total_supply / endowed_accounts.len() as u128;
-	let initial_difficulty = U256::from(1_000_000u64);
+	let initial_difficulty = U256::from(1_000u64);
 	let validator_accounts: Vec<AccountId> =
 		initial_validators.iter().map(|(a, _, _)| a.clone()).collect();
 	let mut session_keys: Vec<(AccountId, AccountId, SessionKeys)> = initial_validators

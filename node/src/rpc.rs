@@ -96,6 +96,16 @@ pub struct EthDeps<C, P, CT, CIDP> {
 	pub pending_create_inherent_data_providers: CIDP,
 }
 
+/// Dependencies for the external mining RPC.
+pub struct MiningDeps {
+	/// Worker handle exposing the current task and seal submission.
+	pub handle: Arc<dyn crate::mining_rpc::ExternalMiner>,
+	/// Configured reward address, in SS58.
+	pub miner: String,
+	/// Active protocol string.
+	pub protocol: String,
+}
+
 /// Full client dependencies.
 pub struct FullDeps<C, P, B, CT, CIDP> {
 	/// The client instance to use.
@@ -106,6 +116,8 @@ pub struct FullDeps<C, P, B, CT, CIDP> {
 	pub grandpa: GrandpaDeps<B>,
 	/// Ethereum-compatibility dependencies.
 	pub eth: EthDeps<C, P, CT, CIDP>,
+	/// External mining dependencies, present when the operator exposes the RPC.
+	pub mining: Option<MiningDeps>,
 }
 
 /// Default `EthConfig` impl bound to the node's client/backend.
@@ -158,7 +170,7 @@ where
 	};
 
 	let mut module = RpcModule::new(());
-	let FullDeps { client, pool, grandpa, eth } = deps;
+	let FullDeps { client, pool, grandpa, eth, mining } = deps;
 	let GrandpaDeps {
 		shared_voter_state,
 		shared_authority_set,
@@ -270,6 +282,11 @@ where
 
 	module.merge(Net::new(eth_client.clone(), network, true).into_rpc())?;
 	module.merge(Web3::new(eth_client).into_rpc())?;
+
+	if let Some(MiningDeps { handle, miner, protocol }) = mining {
+		use crate::mining_rpc::{Mining, MiningApiServer};
+		module.merge(Mining::new(handle, miner, protocol).into_rpc())?;
+	}
 
 	Ok(module)
 }

@@ -7,6 +7,7 @@ mod chain_spec;
 mod cli;
 mod command;
 mod eth;
+mod mining_rpc;
 mod rpc;
 mod service;
 

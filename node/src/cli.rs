@@ -8,9 +8,15 @@ pub struct Cli {
 	#[clap(flatten)]
 	pub run: RunCmd,
 
-	/// Enable PoW block mining and set the SS58 reward address.
+	/// Enable PoW mining for the given SS58 reward address and expose the mining
+	/// RPC for external miners.
 	#[arg(long, value_name = "SS58")]
 	pub miner: Option<String>,
+
+	/// Also run the in-process scan loop so the node mines locally. Bare flag uses
+	/// all cores. Pass a number to cap the scan threads.
+	#[arg(long, value_name = "THREADS", num_args = 0..=1, default_missing_value = "0")]
+	pub node_miner: Option<usize>,
 }
 
 #[derive(Debug, clap::Subcommand)]
