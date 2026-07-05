@@ -153,6 +153,7 @@ where
 	C::Api: BlockBuilder<Block>,
 	C::Api: ConvertTransactionRuntimeApi<Block>,
 	C::Api: EthereumRuntimeRPCApi<Block>,
+	C::Api: poscan_pow::PowVerifyApi<Block>,
 	P: TransactionPool<Block = Block, Hash = <Block as BlockT>::Hash> + 'static,
 	B: sc_client_api::Backend<Block> + Send + Sync + 'static,
 	BE: Backend<Block> + 'static,
@@ -286,6 +287,13 @@ where
 	if let Some(MiningDeps { handle, miner, protocol }) = mining {
 		use crate::mining_rpc::{Mining, MiningApiServer};
 		module.merge(Mining::new(handle, miner, protocol).into_rpc())?;
+	}
+
+	// Model export needs only the client, so every node exposes it regardless of
+	// whether it mines.
+	{
+		use crate::object_rpc::{ObjectApiServer, ObjectExport};
+		module.merge(ObjectExport::<C, Block>::new(client.clone()).into_rpc())?;
 	}
 
 	Ok(module)

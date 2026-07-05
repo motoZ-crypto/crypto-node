@@ -279,6 +279,10 @@ impl_runtime_apis! {
 		fn verify_seal(pre_hash: sp_core::H256, seal: Vec<u8>, difficulty: U256) -> bool {
 			poscan::verify_seal(pre_hash, &seal, difficulty).unwrap_or(false)
 		}
+
+		fn generate_mesh(pre_hash: sp_core::H256, nonce: U256) -> Vec<u8> {
+			poscan::WireMesh::from(poscan::Compute { pre_hash, nonce }.mesh()).encode()
+		}
 	}
 
 	impl sp_consensus_grandpa::GrandpaApi<Block> for Runtime {
