@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use codec::{Decode, DecodeAll, Encode};
 use sha2::{Digest, Sha256};
 use primitive_types::{H256, U256};
-use spectral3d::{N_FEATURES, QUANT_STEP};
+use spectral3d::{Mesh, N_FEATURES, QUANT_STEP};
 
 // ── Protocol parameters ─────────────────────────────────────────────
 
@@ -61,12 +61,18 @@ pub struct Compute {
 }
 
 impl Compute {
+	/// Grow the mesh this attempt scans. Work hashing and model export both
+	/// derive geometry through here, so an exported model is the exact mesh the
+	/// work value committed to.
+	pub fn mesh(&self) -> Mesh {
+		let seed = derive_seed(&self.pre_hash, &self.nonce);
+		obj_asteroid::asteroid(seed, SUBDIVISIONS)
+	}
+
 	/// Run the PoScan pipeline for this attempt. Returns `None` when the
 	/// generated mesh is structurally unscannable, which a valid seal never is.
 	pub fn work(&self) -> Option<H256> {
-		let seed = derive_seed(&self.pre_hash, &self.nonce);
-		let mesh = obj_asteroid::asteroid(seed, SUBDIVISIONS);
-		let features = spectral3d::scan(mesh, TARGET_SAMPLES).ok()?;
+		let features = spectral3d::scan(self.mesh(), TARGET_SAMPLES).ok()?;
 		Some(hash_buckets(&quantize(&features)))
 	}
 
@@ -74,6 +80,25 @@ impl Compute {
 	pub fn seal(self) -> Option<Seal> {
 		let work = self.work()?;
 		Some(Seal { nonce: self.nonce, work })
+	}
+}
+
+/// A generated mesh crossing from the runtime to the node for model export.
+/// Holds the exact vertices and faces the work scanned. Spectral coordinates
+/// never enter the runtime metadata type system, so this rides the runtime API
+/// as its encoded bytes rather than a typed return. The node formats it as OBJ.
+#[derive(Clone, PartialEq, Encode, Decode, Debug)]
+pub struct WireMesh {
+	/// Vertex positions.
+	pub vertices: Vec<[f64; 3]>,
+	/// Triangle faces holding indices into `vertices`, counted from zero.
+	pub faces: Vec<[u32; 3]>,
+}
+
+impl From<Mesh> for WireMesh {
+	fn from(mesh: Mesh) -> Self {
+		let Mesh { vertices, faces } = mesh;
+		Self { vertices, faces }
 	}
 }
 
@@ -158,6 +183,21 @@ mod tests {
 		let c = Compute { pre_hash: H256::from_low_u64_be(42), nonce: U256::from(1) };
 		assert!(c.work().is_some());
 		assert_eq!(c.work(), c.work());
+	}
+
+	#[test]
+	fn mesh_is_reproducible() {
+		let c = Compute { pre_hash: H256::from_low_u64_be(42), nonce: U256::from(1) };
+		assert_eq!(WireMesh::from(c.mesh()), WireMesh::from(c.mesh()));
+	}
+
+	#[test]
+	fn wire_mesh_roundtrips() {
+		let c = Compute { pre_hash: H256::from_low_u64_be(7), nonce: U256::from(3) };
+		let wire = WireMesh::from(c.mesh());
+		assert!(!wire.vertices.is_empty() && !wire.faces.is_empty());
+		let decoded = WireMesh::decode_all(&mut &wire.encode()[..]).expect("wire mesh decodes");
+		assert_eq!(wire, decoded);
 	}
 
 	#[test]

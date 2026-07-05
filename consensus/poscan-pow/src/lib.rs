@@ -18,6 +18,13 @@ sp_api::decl_runtime_apis! {
 	pub trait PowVerifyApi {
 		/// Verify a raw seal against the pre-hash and difficulty target.
 		fn verify_seal(pre_hash: H256, seal: alloc::vec::Vec<u8>, difficulty: U256) -> bool;
+
+		/// Rebuild the miner mesh for a pre-hash and nonce, returned as an encoded
+		/// `poscan::WireMesh`. Run at a block's parent, this replays the exact
+		/// generator that verified the block, so an exported model stays faithful
+		/// even after a generator upgrade. Spectral coordinates never enter the
+		/// runtime metadata type system, so the mesh rides back as encoded bytes.
+		fn generate_mesh(pre_hash: H256, nonce: U256) -> alloc::vec::Vec<u8>;
 	}
 }
 
