@@ -10,7 +10,7 @@ pub type ChainSpec = sc_service::GenericChainSpec;
 fn chain_properties() -> sc_service::Properties {
 	serde_json::from_value(json!({
 		"tokenDecimals": 18,
-		"tokenSymbol": "UNIT"
+		"tokenSymbol": "NUMN"
 	}))
 	.expect("valid properties")
 }
@@ -20,8 +20,9 @@ pub fn development_chain_spec() -> Result<ChainSpec, String> {
 		WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
 		None,
 	)
-	.with_name("Development")
+	.with_name("Numen Development")
 	.with_id("dev")
+	.with_protocol_id("numen")
 	.with_chain_type(ChainType::Development)
 	.with_genesis_config_preset_name(sp_genesis_builder::DEV_RUNTIME_PRESET)
 	.with_properties(chain_properties())
@@ -33,8 +34,9 @@ pub fn local_chain_spec() -> Result<ChainSpec, String> {
 		WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
 		None,
 	)
-	.with_name("Local Testnet")
+	.with_name("Numen Local Testnet")
 	.with_id("local_testnet")
+	.with_protocol_id("numen")
 	.with_chain_type(ChainType::Local)
 	.with_genesis_config_preset_name(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET)
 	.with_properties(chain_properties())
@@ -46,8 +48,9 @@ pub fn integration_chain_spec() -> Result<ChainSpec, String> {
 		WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
 		None,
 	)
-	.with_name("Integration Testnet")
+	.with_name("Numen Integration Testnet")
 	.with_id("integration")
+	.with_protocol_id("numen")
 	.with_chain_type(ChainType::Local)
 	.with_genesis_config_preset_name(INTEGRATION_RUNTIME_PRESET)
 	.with_properties(chain_properties())

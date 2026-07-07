@@ -11,7 +11,7 @@ With `TargetBlockTime = 20s` (so `MINUTES = 3` blocks) the derived constants are
 | Constant                         | zombienet-runtime |
 | -------------------------------- | -----------: |
 | `SessionPeriod`                  |       3 mins |
-| `LockAmount`                     |       1 UNIT |
+| `LockAmount`                     |       1 NUMN |
 | `LockDuration`                   |       5 mins |
 | `RenewInterval`                  |       3 mins |
 | `RejoinCooldownPeriod`           |       1 mins |

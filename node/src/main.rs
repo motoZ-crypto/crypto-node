@@ -1,4 +1,4 @@
-//! Substrate Node Template CLI library.
+//! Numen node CLI library.
 #![warn(missing_docs)]
 #![allow(clippy::result_large_err)]
 

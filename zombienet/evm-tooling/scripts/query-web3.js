@@ -26,7 +26,7 @@ async function main() {
   ];
   for (const [name, addr] of accounts) {
     const bal = await web3.eth.getBalance(addr);
-    console.log(`${name} ${addr}: ${web3.utils.fromWei(bal, "ether")} UNIT`);
+    console.log(`${name} ${addr}: ${web3.utils.fromWei(bal, "ether")} NUMN`);
   }
 
   if (Number(chainId) !== 32026) {

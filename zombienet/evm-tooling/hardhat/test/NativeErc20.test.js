@@ -1,4 +1,4 @@
-// Native UNIT as ERC20 (precompile at 0x0000…0802) round-trip.
+// Native NUMN as ERC20 (precompile at 0x0000…0802) round-trip.
 //
 //   npx hardhat --network cryptoNode test mocha
 //
@@ -22,13 +22,13 @@ const ERC20_ABI = [
   "function transfer(address,uint256) returns (bool)",
 ];
 
-describe("Native UNIT ERC20 precompile (0x0802)", function () {
+describe("Native NUMN ERC20 precompile (0x0802)", function () {
   this.timeout(120_000);
 
-  it("exposes UNIT metadata", async function () {
+  it("exposes NUMN metadata", async function () {
     const erc20 = new ethers.Contract(PRECOMPILE, ERC20_ABI, ethers.provider);
-    expect(await erc20.name()).to.equal("UNIT");
-    expect(await erc20.symbol()).to.equal("UNIT");
+    expect(await erc20.name()).to.equal("Numen");
+    expect(await erc20.symbol()).to.equal("NUMN");
     expect(Number(await erc20.decimals())).to.equal(18);
   });
 
@@ -41,7 +41,7 @@ describe("Native UNIT ERC20 precompile (0x0802)", function () {
     expect(erc20Bal).to.equal(nativeBal);
   });
 
-  it("transfer moves native UNIT between mirror accounts", async function () {
+  it("transfer moves native NUMN between mirror accounts", async function () {
     const [alith, baltathar] = await ethers.getSigners();
     const erc20 = new ethers.Contract(PRECOMPILE, ERC20_ABI, alith);
 
