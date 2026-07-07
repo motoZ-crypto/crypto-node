@@ -84,12 +84,12 @@ impl FindAuthor<H160> for EvmFindAuthorZero {
 	}
 }
 
-/// ERC20 metadata for the native UNIT token, injected into the
+/// ERC20 metadata for the native token, injected into the
 /// `balances-erc20` precompile.
 pub struct NativeErc20Metadata;
 impl Erc20Metadata for NativeErc20Metadata {
-	const NAME: &'static str = "UNIT";
-	const SYMBOL: &'static str = "UNIT";
+	const NAME: &'static str = "Numen";
+	const SYMBOL: &'static str = "NUMN";
 	const DECIMALS: u8 = 18;
 }
 

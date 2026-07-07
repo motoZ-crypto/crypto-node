@@ -13,7 +13,7 @@ use sp_keyring::Sr25519Keyring;
 
 impl SubstrateCli for Cli {
 	fn impl_name() -> String {
-		"Substrate Node".into()
+		"Numen Node".into()
 	}
 
 	fn impl_version() -> String {

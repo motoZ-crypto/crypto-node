@@ -2,7 +2,7 @@
 //
 //   node transfer-ethers.js
 //
-// Defaults: Alith → Baltathar, 1.5 UNIT, RPC at 127.0.0.1:9944.
+// Defaults: Alith → Baltathar, 1.5 NUMN, RPC at 127.0.0.1:9944.
 
 const { JsonRpcProvider, Wallet, formatEther, parseEther } = require("ethers");
 
@@ -26,7 +26,7 @@ async function main() {
   const wallet = new Wallet(ALITH_PK, provider);
   console.log(`from:    ${wallet.address}`);
   console.log(`to:      ${BALTATHAR}`);
-  console.log(`amount:  ${formatEther(AMOUNT)} UNIT`);
+  console.log(`amount:  ${formatEther(AMOUNT)} NUMN`);
 
   const beforeFrom = await provider.getBalance(wallet.address);
   const beforeTo = await provider.getBalance(BALTATHAR);

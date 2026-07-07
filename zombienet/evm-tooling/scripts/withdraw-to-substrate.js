@@ -2,7 +2,7 @@
 //
 //   node withdraw-to-substrate.js
 //
-// Sends `amount` UNIT from Alith's mirror substrate account to a target
+// Sends `amount` NUMN from Alith's mirror substrate account to a target
 // substrate AccountId32 by invoking
 // `withdraw(bytes32 dest, uint256 amount)` on the precompile.
 //
@@ -59,10 +59,10 @@ async function main() {
 
   console.log(`from(EVM):       ${wallet.address}`);
   console.log(`to(substrate):   ${ALICE_PUBKEY}`);
-  console.log(`amount:          ${formatEther(AMOUNT)} UNIT`);
+  console.log(`amount:          ${formatEther(AMOUNT)} NUMN`);
 
   const before = await erc20.balanceOf(wallet.address);
-  console.log(`before alith:    ${formatEther(before)} UNIT`);
+  console.log(`before alith:    ${formatEther(before)} NUMN`);
 
   const tx = await erc20.withdraw(ALICE_PUBKEY, AMOUNT);
   console.log(`tx hash:         ${tx.hash}`);
@@ -83,7 +83,7 @@ async function main() {
   const srcTopic = getAddress("0x" + log.topics[1].slice(26));
   const destTopic = log.topics[2];
   const wad = BigInt(log.data);
-  console.log(`event Withdrawal src=${srcTopic} dest=${destTopic} wad=${formatEther(wad)} UNIT`);
+  console.log(`event Withdrawal src=${srcTopic} dest=${destTopic} wad=${formatEther(wad)} NUMN`);
 
   if (srcTopic !== getAddress(wallet.address)) {
     console.error(`event src mismatch: got ${srcTopic}, want ${wallet.address}`);
@@ -99,10 +99,10 @@ async function main() {
   }
 
   const after = await erc20.balanceOf(wallet.address);
-  console.log(`after alith:     ${formatEther(after)} UNIT`);
+  console.log(`after alith:     ${formatEther(after)} NUMN`);
   // After the call: balance must drop by at least `AMOUNT` (the rest is gas).
   if (before - after < AMOUNT) {
-    console.error(`alith delta ${formatEther(before - after)} UNIT < requested ${formatEther(AMOUNT)} UNIT`);
+    console.error(`alith delta ${formatEther(before - after)} NUMN < requested ${formatEther(AMOUNT)} NUMN`);
     process.exit(1);
   }
 }

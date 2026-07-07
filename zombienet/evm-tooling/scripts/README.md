@@ -19,7 +19,7 @@ node transfer-ethers.js
 # 4. read-only RPC smoke check
 node query-web3.js
 
-# 5. native UNIT as ERC20 via the 0x0802 precompile (Alith → Baltathar)
+# 5. native NUMN as ERC20 via the 0x0802 precompile (Alith → Baltathar)
 node transfer-precompile.js
 
 # 6. EVM → substrate withdrawal via 0x0802 (Alith → Alice)
