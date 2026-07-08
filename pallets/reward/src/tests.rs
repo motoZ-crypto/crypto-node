@@ -1,5 +1,5 @@
 use crate::mock::*;
-use frame_support::traits::Get;
+use frame_support::traits::{Currency, Get};
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::AccountId32;
 
@@ -142,5 +142,33 @@ fn emission_ends_once_reward_shifts_out() {
         let miner = Sr25519Keyring::Alice.to_account_id();
         let balance = reward_at(halving_interval() * 11, &miner);
         assert_eq!(balance, 0, "emission must stop once the reward reaches zero");
+    });
+}
+
+#[test]
+fn total_mined_issuance_stays_under_the_geometric_cap() {
+    new_test_ext().execute_with(|| {
+        let miner = Sr25519Keyring::Alice.to_account_id();
+        let interval = halving_interval() as Balance;
+
+        // Mine one interval past the last paying height.
+        for _ in 1..=halving_interval() * 11 {
+            advance_block_with(pow_author_digest(&miner));
+        }
+
+        // Genesis pays nothing, so the first period is one block short. Each
+        // later period pays `interval` blocks, and those rewards are the powers
+        // of two below `InitialReward`, summing to `InitialReward - 1`.
+        let minted = (interval - 1) * initial_reward() + interval * (initial_reward() - 1);
+
+        assert_eq!(
+            <Balances as Currency<AccountId32>>::total_issuance(),
+            minted,
+            "emission must follow the truncated halving schedule"
+        );
+        assert!(
+            minted < 2 * initial_reward() * interval,
+            "mined issuance must stay under the geometric cap"
+        );
     });
 }

@@ -63,9 +63,9 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        /// Reward at height `n`: `InitialReward` halved once per elapsed
-        /// `HalvingInterval`. Integer division truncates each halving and the
-        /// reward reaches zero once fully shifted out, ending emission.
+        /// Reward at height `n`, which is `InitialReward` halved once per
+        /// elapsed `HalvingInterval`. Integer division truncates each halving
+        /// and the reward reaches zero once fully shifted out, ending emission.
         fn block_reward(n: BlockNumberFor<T>) -> BalanceOf<T> {
             let mut halvings = n / T::HalvingInterval::get();
             let mut reward = T::InitialReward::get();
