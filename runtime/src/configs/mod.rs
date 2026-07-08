@@ -2,10 +2,10 @@
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		fungible::HoldConsideration,
+		fungible::{Balanced, Credit, HoldConsideration},
 		tokens::{PayFromAccount, UnityAssetBalanceConversion},
 		ConstU128, ConstU32, ConstU64, ConstU8, EqualPrivilegeOnly, LinearStoragePrice,
-		VariantCountOf,
+		OnUnbalanced, VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -157,9 +157,24 @@ pub type SlowAdjustingFeeUpdate<R> = TargetedFeeAdjustment<
 	MaximumMultiplier,
 >;
 
+/// Routes transaction fees and tips to the block's PoW miner.
+///
+/// The miner is resolved through [`PowFindAuthor`] via `pallet-authorship`.
+/// Blocks without a PoW author digest (never produced by the canonical chain)
+/// drop the credit, burning it.
+pub struct DealWithFees;
+
+impl OnUnbalanced<Credit<AccountId, Balances>> for DealWithFees {
+	fn on_nonzero_unbalanced(amount: Credit<AccountId, Balances>) {
+		if let Some(author) = crate::Authorship::author() {
+			let _ = <Balances as Balanced<AccountId>>::resolve(&author, amount);
+		}
+	}
+}
+
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type OnChargeTransaction = FungibleAdapter<Balances, ()>;
+	type OnChargeTransaction = FungibleAdapter<Balances, DealWithFees>;
 	type OperationalFeeMultiplier = ConstU8<5>;
 	type WeightToFee = IdentityFee<Balance>;
 	type LengthToFee = IdentityFee<Balance>;
@@ -202,18 +217,25 @@ impl pallet_grandpa::Config for Runtime {
 
 /// Block-author finder for `pallet-authorship`.
 ///
-/// PoW does not have a first-class authority, so we do not attribute block
-/// authorship for reward or reporter purposes here. The value is only consumed
-/// by the GRANDPA equivocation report pipeline as a fallback reporter when an
-/// offchain worker submits a report; leaving it `None` means the report carries
-/// no reporter, which is fine because our reporting adapter ignores reporters.
+/// The internal and external miners write the block author as the payload of a
+/// `PreRuntime(POW_ENGINE_ID, _)` digest. Decoding it here lets fee routing
+/// ([`DealWithFees`]) credit the miner and lets the GRANDPA equivocation report
+/// pipeline attribute a reporter.
 pub struct PowFindAuthor;
 
 impl frame_support::traits::FindAuthor<AccountId> for PowFindAuthor {
-	fn find_author<'a, I>(_digests: I) -> Option<AccountId>
+	fn find_author<'a, I>(digests: I) -> Option<AccountId>
 	where
 		I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
 	{
+		use codec::Decode;
+		use sp_consensus_pow::POW_ENGINE_ID;
+
+		for (engine, mut data) in digests {
+			if engine == POW_ENGINE_ID {
+				return AccountId::decode(&mut data).ok();
+			}
+		}
 		None
 	}
 }
