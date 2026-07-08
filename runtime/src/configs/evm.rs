@@ -52,8 +52,6 @@ const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 const MAX_STORAGE_GROWTH: u64 = 400 * 1024;
 
 parameter_types! {
-	/// EVM chain id. Set via genesis into `pallet-evm-chain-id` storage.
-	pub const ChainId: u64 = 32026;
 	pub BlockGasLimit: U256 = U256::from(BLOCK_GAS_LIMIT);
 	pub TransactionGasLimit: Option<U256> = Some(fp_evm::MAX_TRANSACTION_GAS_LIMIT);
 	pub const GasLimitPovSizeRatio: u64 = BLOCK_GAS_LIMIT.saturating_div(MAX_POV_SIZE);
