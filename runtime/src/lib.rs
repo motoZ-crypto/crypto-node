@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![recursion_limit = "512"]
 
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
@@ -260,6 +261,23 @@ mod runtime {
 
 	#[runtime::pallet_index(18)]
 	pub type ChildBounties = pallet_child_bounties;
+
+	// --- OpenGov ---
+
+	#[runtime::pallet_index(19)]
+	pub type Preimage = pallet_preimage;
+
+	#[runtime::pallet_index(20)]
+	pub type Scheduler = pallet_scheduler;
+
+	#[runtime::pallet_index(21)]
+	pub type ConvictionVoting = pallet_conviction_voting;
+
+	#[runtime::pallet_index(22)]
+	pub type Referenda = pallet_referenda;
+
+	#[runtime::pallet_index(23)]
+	pub type Origins = configs::governance::pallet_custom_origins;
 }
 
 // pallet-im-online submits unsigned heartbeat extrinsics from offchain
