@@ -1,10 +1,10 @@
 //! Block reward pallet.
 //!
-//! Reads the PoW pre-runtime digest to identify the block author (miner),
-//! then mints a halving reward to their account on each block. The reward
-//! starts at `InitialReward` and halves every `HalvingInterval` blocks, so
-//! total mined issuance is the geometric sum `2 * InitialReward *
-//! HalvingInterval`, capping emission without any on-chain supply check.
+//! Resolves the block author (miner) through `FindAuthor`, then mints a halving
+//! reward to their account on each block. The reward starts at `InitialReward`
+//! and halves every `HalvingInterval` blocks, so total mined issuance is the
+//! geometric sum `2 * InitialReward * HalvingInterval`, capping emission
+//! without any on-chain supply check.
 //!
 //! Orphan and uncle blocks receive no reward because their state changes
 //! are never applied to the canonical chain.
@@ -20,10 +20,11 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use codec::Decode;
-    use frame_support::{pallet_prelude::*, traits::Currency};
+    use frame_support::{
+        pallet_prelude::*,
+        traits::{Currency, FindAuthor},
+    };
     use frame_system::pallet_prelude::*;
-    use sp_consensus_pow::POW_ENGINE_ID;
     use sp_runtime::traits::{One, Zero};
 
     type BalanceOf<T> =
@@ -33,6 +34,9 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         /// The currency used to mint block rewards.
         type Currency: Currency<Self::AccountId>;
+
+        /// Resolves the block author from the pre-runtime digest.
+        type FindAuthor: FindAuthor<Self::AccountId>;
 
         /// Reward for the first halving period (in smallest units).
         #[pallet::constant]
@@ -73,20 +77,9 @@ pub mod pallet {
             reward
         }
 
-        /// Extract the block author from the PoW pre-runtime digest.
-        ///
-        /// The miner encodes their `AccountId` as the payload of a
-        /// `PreRuntime(POW_ENGINE_ID, _)` digest item.
         fn find_author() -> Option<T::AccountId> {
             let digest = frame_system::Pallet::<T>::digest();
-            for log in digest.logs.iter() {
-                if let sp_runtime::DigestItem::PreRuntime(engine, data) = log
-                    && *engine == POW_ENGINE_ID
-                {
-                    return T::AccountId::decode(&mut &data[..]).ok();
-                }
-            }
-            None
+            T::FindAuthor::find_author(digest.logs.iter().filter_map(|log| log.as_pre_runtime()))
         }
     }
 }
