@@ -40,7 +40,7 @@ use crate::{AccountId, Authorship, Balances, Runtime, Timestamp};
 const BLOCK_GAS_LIMIT: u64 = 75_000_000;
 /// Compute budget per block, in milliseconds, used to derive `WeightPerGas`.
 ///
-/// PoW targets ~20s of wall-clock per block (see [`super::TargetBlockTime`]),
+/// PoW targets ~10s of wall-clock per block (see [`super::TargetBlockTime`]),
 /// but the runtime caps actual on-chain compute to 2s of reference time
 /// (see `RuntimeBlockWeights` in [`super`]). The EVM gas/weight conversion
 /// must be calibrated against this real compute budget — not the wall-clock
