@@ -2,8 +2,10 @@
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
+		fungible::HoldConsideration,
 		tokens::{PayFromAccount, UnityAssetBalanceConversion},
-		ConstU128, ConstU32, ConstU64, ConstU8, VariantCountOf,
+		ConstU128, ConstU32, ConstU64, ConstU8, EqualPrivilegeOnly, LinearStoragePrice,
+		VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -13,7 +15,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureWithSuccess,
+	EnsureRoot,
 };
 use pallet_session::PeriodicSessions;
 use pallet_transaction_payment::{FungibleAdapter, Multiplier, TargetedFeeAdjustment};
@@ -24,13 +26,14 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 
 pub mod evm;
+pub mod governance;
 
 // Local module imports
 use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, Bounties, ChildBounties, Hash, Nonce,
-	PalletInfo, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason,
-	RuntimeOrigin, RuntimeTask, Session, SessionKeys, System, Treasury, Validator,
-	EXISTENTIAL_DEPOSIT, UNIT, VERSION, DAYS, MINUTES
+	OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Session, SessionKeys, System, Treasury,
+	Validator, EXISTENTIAL_DEPOSIT, UNIT, VERSION, DAYS, MINUTES
 };
 
 pub(crate) const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -441,7 +444,7 @@ impl pallet_treasury::Config for Runtime {
 	type SpendFunds = Bounties;
 	type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
 	type MaxApprovals = MaxApprovals;
-	type SpendOrigin = EnsureWithSuccess<EnsureRoot<AccountId>, AccountId, MaxBalance>;
+	type SpendOrigin = governance::TreasurySpender;
 	type AssetKind = ();
 	type Beneficiary = AccountId;
 	type BeneficiaryLookup = IdentityLookup<AccountId>;
@@ -492,4 +495,46 @@ impl pallet_child_bounties::Config for Runtime {
 	type MaxActiveChildBountyCount = MaxActiveChildBountyCount;
 	type ChildBountyValueMinimum = ChildBountyValueMinimum;
 	type WeightInfo = pallet_child_bounties::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
+	pub MaximumSchedulerWeight: Weight =
+		Perbill::from_percent(80) * RuntimeBlockWeights::get().max_block;
+}
+
+impl pallet_scheduler::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeOrigin = RuntimeOrigin;
+	type PalletsOrigin = OriginCaller;
+	type RuntimeCall = RuntimeCall;
+	type MaximumWeight = MaximumSchedulerWeight;
+	type ScheduleOrigin = EnsureRoot<AccountId>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type MaxScheduledPerBlock = ConstU32<512>;
+	#[cfg(not(feature = "runtime-benchmarks"))]
+	type MaxScheduledPerBlock = ConstU32<50>;
+	type WeightInfo = pallet_scheduler::weights::SubstrateWeight<Runtime>;
+	type OriginPrivilegeCmp = EqualPrivilegeOnly;
+	type Preimages = Preimage;
+	type BlockNumberProvider = System;
+}
+
+parameter_types! {
+	pub const PreimageBaseDeposit: Balance = 5 * UNIT;
+	pub const PreimageByteDeposit: Balance = UNIT / 100;
+	pub const PreimageHoldReason: RuntimeHoldReason =
+		RuntimeHoldReason::Preimage(pallet_preimage::HoldReason::Preimage);
+}
+
+impl pallet_preimage::Config for Runtime {
+	type WeightInfo = pallet_preimage::weights::SubstrateWeight<Runtime>;
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type ManagerOrigin = EnsureRoot<AccountId>;
+	type Consideration = HoldConsideration<
+		AccountId,
+		Balances,
+		PreimageHoldReason,
+		LinearStoragePrice<PreimageBaseDeposit, PreimageByteDeposit, Balance>,
+	>;
 }

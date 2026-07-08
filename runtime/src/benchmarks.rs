@@ -8,4 +8,8 @@ frame_benchmarking::define_benchmarks!(
 	[pallet_treasury, Treasury]
 	[pallet_bounties, Bounties]
 	[pallet_child_bounties, ChildBounties]
+	[pallet_preimage, Preimage]
+	[pallet_scheduler, Scheduler]
+	[pallet_conviction_voting, ConvictionVoting]
+	[pallet_referenda, Referenda]
 );
