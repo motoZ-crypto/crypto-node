@@ -3,21 +3,25 @@
 //! Wires `pallet-evm`, `pallet-ethereum`, `pallet-base-fee` and
 //! `pallet-evm-chain-id` into the runtime. Substrate `AccountId32` accounts
 //! are mapped onto EVM `H160` addresses through Frontier's standard
-//! `HashedAddressMapping<BlakeTwo256>`. PoW does not assign block authorship,
-//! so `FindAuthor<H160>` always returns `None` (mirroring the
-//! [`PowFindAuthor`](super::PowFindAuthor) used by `pallet-authorship`).
+//! `HashedAddressMapping<BlakeTwo256>`. A PoW miner has no `H160` identity, so
+//! the EVM `COINBASE` (`FindAuthor<H160>`) is pinned to the zero address; EVM
+//! fees are still routed to the substrate-side miner by [`EvmDealWithFees`].
 
 use core::marker::PhantomData;
 
 use frame_support::{
 	parameter_types,
-	traits::{ConstU32, FindAuthor},
+	traits::{
+		fungible::{Balanced, Credit},
+		ConstU32, FindAuthor,
+	},
 	weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, Weight},
 };
 use pallet_ethereum::PostLogContent;
 use pallet_evm::{
-	EnsureAddressNever, EnsureAddressRoot, HashedAddressMapping, IsPrecompileResult, Precompile,
-	PrecompileHandle, PrecompileResult, PrecompileSet,
+	EnsureAddressNever, EnsureAddressRoot, EVMFungibleAdapter, HashedAddressMapping,
+	IsPrecompileResult, OnChargeEVMTransaction, Precompile, PrecompileHandle, PrecompileResult,
+	PrecompileSet,
 };
 use pallet_evm_precompile_bn128::{Bn128Add, Bn128Mul, Bn128Pairing};
 use pallet_evm_precompile_balances_erc20::{Erc20BalancesPrecompile, Erc20Metadata};
@@ -29,14 +33,14 @@ use sp_runtime::{
 	ConsensusEngineId, Permill,
 };
 
-use super::NORMAL_DISPATCH_RATIO;
-use crate::{Balances, Runtime, Timestamp};
+use super::{DealWithFees, NORMAL_DISPATCH_RATIO};
+use crate::{AccountId, Authorship, Balances, Runtime, Timestamp};
 
 /// Target block gas limit (matches the Frontier template default).
 const BLOCK_GAS_LIMIT: u64 = 75_000_000;
 /// Compute budget per block, in milliseconds, used to derive `WeightPerGas`.
 ///
-/// PoW targets ~20s of wall-clock per block (see [`super::TargetBlockTime`]),
+/// PoW targets ~10s of wall-clock per block (see [`super::TargetBlockTime`]),
 /// but the runtime caps actual on-chain compute to 2s of reference time
 /// (see `RuntimeBlockWeights` in [`super`]). The EVM gas/weight conversion
 /// must be calibrated against this real compute budget — not the wall-clock
@@ -169,6 +173,42 @@ fn hash(a: u64) -> H160 {
 	H160::from_low_u64_be(a)
 }
 
+/// EVM fee handler routing both the base fee and the priority tip to the PoW
+/// miner. Base fee goes through [`DealWithFees`]; the tip is deposited to the
+/// same author here, overriding the default that pays the `COINBASE` address
+/// (which PoW pins to zero, see [`EvmFindAuthorZero`]).
+pub struct EvmDealWithFees;
+
+impl OnChargeEVMTransaction<Runtime> for EvmDealWithFees {
+	type LiquidityInfo = Option<Credit<AccountId, Balances>>;
+
+	fn withdraw_fee(who: &H160, fee: U256) -> Result<Self::LiquidityInfo, pallet_evm::Error<Runtime>> {
+		EVMFungibleAdapter::<Balances, DealWithFees>::withdraw_fee(who, fee)
+	}
+
+	fn correct_and_deposit_fee(
+		who: &H160,
+		corrected_fee: U256,
+		base_fee: U256,
+		already_withdrawn: Self::LiquidityInfo,
+	) -> Self::LiquidityInfo {
+		<EVMFungibleAdapter<Balances, DealWithFees> as OnChargeEVMTransaction<Runtime>>::correct_and_deposit_fee(
+			who,
+			corrected_fee,
+			base_fee,
+			already_withdrawn,
+		)
+	}
+
+	fn pay_priority_fee(tip: Self::LiquidityInfo) {
+		if let Some(tip) = tip {
+			if let Some(author) = Authorship::author() {
+				let _ = <Balances as Balanced<AccountId>>::resolve(&author, tip);
+			}
+		}
+	}
+}
+
 impl pallet_evm_chain_id::Config for Runtime {}
 
 impl pallet_evm::Config for Runtime {
@@ -196,7 +236,7 @@ impl pallet_evm::Config for Runtime {
 	type BlockGasLimit = BlockGasLimit;
 	type TransactionGasLimit = TransactionGasLimit;
 	type Runner = pallet_evm::runner::stack::Runner<Self>;
-	type OnChargeTransaction = ();
+	type OnChargeTransaction = EvmDealWithFees;
 	type OnCreate = ();
 	type FindAuthor = EvmFindAuthorZero;
 	type GasLimitPovSizeRatio = GasLimitPovSizeRatio;

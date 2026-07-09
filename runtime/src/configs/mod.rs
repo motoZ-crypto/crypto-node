@@ -2,10 +2,10 @@
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		fungible::HoldConsideration,
+		fungible::{Balanced, Credit, HoldConsideration},
 		tokens::{PayFromAccount, UnityAssetBalanceConversion},
 		ConstU128, ConstU32, ConstU64, ConstU8, EqualPrivilegeOnly, LinearStoragePrice,
-		VariantCountOf,
+		OnUnbalanced, VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -42,9 +42,8 @@ parameter_types! {
 	pub const BlockHashCount: BlockNumber = 2400;
 	pub const Version: RuntimeVersion = VERSION;
 
-	pub const TargetBlockTime: u64 = 20;
+	pub const TargetBlockTime: u64 = 10;
 
-	/// We allow for 2 seconds of compute with a 6 second average block time.
 	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
 		Weight::from_parts(2u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
 		NORMAL_DISPATCH_RATIO,
@@ -104,7 +103,7 @@ impl frame_system::Config for Runtime {
 impl pallet_timestamp::Config for Runtime {
 	type Moment = u64;
 	type OnTimestampSet = ();
-	type MinimumPeriod = ConstU64<10_000>;
+	type MinimumPeriod = ConstU64<2_000>;
 	type WeightInfo = ();
 }
 
@@ -128,13 +127,21 @@ impl pallet_balances::Config for Runtime {
 }
 
 parameter_types! {
-	/// Block reward: 50 UNIT per block to the miner.
-	pub const BlockReward: Balance = 50 * super::UNIT;
+	/// Reward for the first halving period, in smallest units.
+	pub const InitialReward: Balance = 16 * super::UNIT;
+	/// Blocks between reward halvings. The 400,000,000 UNIT cap on total mined
+	/// issuance is the geometric sum `2 * InitialReward * HalvingInterval`, so
+	/// this interval follows from the cap rather than from a wall-clock target.
+	/// It lands near four years at a 10s block time, and retuning
+	/// `TargetBlockTime` moves that duration without touching the cap.
+	pub const HalvingInterval: BlockNumber = 12_500_000;
 }
 
 impl pallet_reward::Config for Runtime {
 	type Currency = Balances;
-	type BlockReward = BlockReward;
+	type FindAuthor = PowFindAuthor;
+	type InitialReward = InitialReward;
+	type HalvingInterval = HalvingInterval;
 }
 
 parameter_types! {
@@ -152,9 +159,24 @@ pub type SlowAdjustingFeeUpdate<R> = TargetedFeeAdjustment<
 	MaximumMultiplier,
 >;
 
+/// Routes transaction fees and tips to the block's PoW miner.
+///
+/// The miner is resolved through [`PowFindAuthor`] via `pallet-authorship`.
+/// Blocks without a PoW author digest (never produced by the canonical chain)
+/// drop the credit, burning it.
+pub struct DealWithFees;
+
+impl OnUnbalanced<Credit<AccountId, Balances>> for DealWithFees {
+	fn on_nonzero_unbalanced(amount: Credit<AccountId, Balances>) {
+		if let Some(author) = crate::Authorship::author() {
+			let _ = <Balances as Balanced<AccountId>>::resolve(&author, amount);
+		}
+	}
+}
+
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type OnChargeTransaction = FungibleAdapter<Balances, ()>;
+	type OnChargeTransaction = FungibleAdapter<Balances, DealWithFees>;
 	type OperationalFeeMultiplier = ConstU8<5>;
 	type WeightToFee = IdentityFee<Balance>;
 	type LengthToFee = IdentityFee<Balance>;
@@ -195,20 +217,27 @@ impl pallet_grandpa::Config for Runtime {
 	>;
 }
 
-/// Block-author finder for `pallet-authorship`.
+/// Block-author finder shared by `pallet-authorship` and `pallet-reward`.
 ///
-/// PoW does not have a first-class authority, so we do not attribute block
-/// authorship for reward or reporter purposes here. The value is only consumed
-/// by the GRANDPA equivocation report pipeline as a fallback reporter when an
-/// offchain worker submits a report; leaving it `None` means the report carries
-/// no reporter, which is fine because our reporting adapter ignores reporters.
+/// The internal and external miners write the block author as the payload of a
+/// `PreRuntime(POW_ENGINE_ID, _)` digest. Decoding it in one place lets fee
+/// routing ([`DealWithFees`]) credit the miner, pays out the block reward, and
+/// lets the GRANDPA equivocation report pipeline attribute a reporter.
 pub struct PowFindAuthor;
 
 impl frame_support::traits::FindAuthor<AccountId> for PowFindAuthor {
-	fn find_author<'a, I>(_digests: I) -> Option<AccountId>
+	fn find_author<'a, I>(digests: I) -> Option<AccountId>
 	where
 		I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
 	{
+		use codec::Decode;
+		use sp_consensus_pow::POW_ENGINE_ID;
+
+		for (engine, mut data) in digests {
+			if engine == POW_ENGINE_ID {
+				return AccountId::decode(&mut data).ok();
+			}
+		}
 		None
 	}
 }

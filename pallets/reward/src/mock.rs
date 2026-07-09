@@ -1,11 +1,13 @@
 use crate as pallet_reward;
-use codec::Encode;
+use codec::{Decode, Encode};
 use frame_support::{
     derive_impl,
-    traits::{ConstU128, Hooks},
+    traits::{ConstU128, ConstU64, FindAuthor, Hooks},
 };
 use sp_consensus_pow::POW_ENGINE_ID;
-use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage, DigestItem};
+use sp_runtime::{
+    traits::IdentityLookup, AccountId32, BuildStorage, ConsensusEngineId, DigestItem,
+};
 
 pub type Balance = u128;
 
@@ -50,9 +52,29 @@ impl pallet_balances::Config for Test {
     type ExistentialDeposit = ConstU128<1>;
 }
 
+/// Mirrors the runtime's `PowFindAuthor`, decoding the miner `AccountId` from
+/// the `PreRuntime(POW_ENGINE_ID, _)` digest payload.
+pub struct PowFindAuthor;
+
+impl FindAuthor<AccountId32> for PowFindAuthor {
+    fn find_author<'a, I>(digests: I) -> Option<AccountId32>
+    where
+        I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
+    {
+        for (engine, mut data) in digests {
+            if engine == POW_ENGINE_ID {
+                return AccountId32::decode(&mut data).ok();
+            }
+        }
+        None
+    }
+}
+
 impl pallet_reward::Config for Test {
     type Currency = Balances;
-    type BlockReward = ConstU128<1>;
+    type FindAuthor = PowFindAuthor;
+    type InitialReward = ConstU128<1024>;
+    type HalvingInterval = ConstU64<10>;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
