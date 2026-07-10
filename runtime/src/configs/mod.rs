@@ -132,11 +132,9 @@ impl pallet_balances::Config for Runtime {
 parameter_types! {
 	/// Reward for the first halving period, in smallest units.
 	pub const InitialReward: Balance = 16 * super::UNIT;
-	/// Blocks between reward halvings. The 400,000,000 UNIT cap on total mined
-	/// issuance is the geometric sum `2 * InitialReward * HalvingInterval`, so
-	/// this interval follows from the cap rather than from a wall-clock target.
-	/// It lands near four years at a 10s block time, and retuning
-	/// `TargetBlockTime` moves that duration without touching the cap.
+	/// Blocks between reward halvings (~4 years at a 10s block time). The
+	/// geometric series caps total mined issuance at `2 * InitialReward *
+	/// HalvingInterval` = 400,000,000 UNIT.
 	pub const HalvingInterval: BlockNumber = 12_500_000;
 }
 
@@ -336,9 +334,9 @@ impl pallet_grandpa::Config for Runtime {
 /// Block-author finder shared by `pallet-authorship` and `pallet-reward`.
 ///
 /// The internal and external miners write the block author as the payload of a
-/// `PreRuntime(POW_ENGINE_ID, _)` digest. Decoding it in one place lets fee
-/// routing ([`DealWithFees`]) credit the miner, pays out the block reward, and
-/// lets the GRANDPA equivocation report pipeline attribute a reporter.
+/// `PreRuntime(POW_ENGINE_ID, _)` digest. Decoding it here lets fee routing
+/// ([`DealWithFees`]) credit the miner, enables block reward payouts, and lets
+/// the GRANDPA equivocation report pipeline attribute a reporter.
 pub struct PowFindAuthor;
 
 impl frame_support::traits::FindAuthor<AccountId> for PowFindAuthor {
