@@ -17,7 +17,7 @@ extern crate alloc;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{
-    traits::{Currency, Get, LockableCurrency},
+    traits::{Contains, Currency, Get, LockableCurrency},
     BoundedVec,
 };
 use scale_info::TypeInfo;
@@ -98,6 +98,9 @@ pub mod pallet {
         #[pallet::constant]
         type LockAmount: Get<BalanceOf<Self>>;
 
+        /// Accounts that validate without locking stake.
+        type StakeExempt: Contains<Self::AccountId>;
+
         /// Lock duration applied at registration and on each renewal.
         #[pallet::constant]
         type LockDuration: Get<BlockNumberFor<Self>>;
@@ -160,9 +163,9 @@ pub mod pallet {
     /// Genesis configuration for `pallet-validator`.
     ///
     /// `initial_validators` lists the accounts that must be present in the
-    /// active validator set at block 0. Each account is locked using
-    /// `Config::LockAmount` and `Config::LockDuration` so that subsequent
-    /// auto-renewal, exit, and kick logic operates on real lock records.
+    /// active validator set at block 0. They are appointed by the chain spec
+    /// and stake nothing. Each account still gets a lock record with a zero
+    /// amount so auto-renewal, exit, and kick logic operates on real records.
     /// The accounts are pushed directly into `DesiredValidators` (not
     /// `PendingValidators`) so that the very first session already has a
     /// non-empty authority set for `pallet-session` and downstream consumers
@@ -178,26 +181,19 @@ pub mod pallet {
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
-            let amount = T::LockAmount::get();
             let duration = T::LockDuration::get();
             let now = BlockNumberFor::<T>::zero();
             let expiry_block = now.saturating_add(duration);
-            let lock_id = T::LockId::get();
 
             let mut active: BoundedVec<T::AccountId, T::MaxValidators> = BoundedVec::default();
             for who in &self.initial_validators {
                 if ValidatorLocks::<T>::contains_key(who) {
                     continue;
                 }
-                assert!(
-                    T::Currency::free_balance(who) >= amount,
-                    "Genesis validator must be endowed with at least LockAmount",
-                );
-                T::Currency::set_lock(lock_id, who, amount, WithdrawReasons::all());
                 ValidatorLocks::<T>::insert(
                     who,
                     LockInfo {
-                        amount,
+                        amount: BalanceOf::<T>::zero(),
                         lock_block: now,
                         expiry_block,
                         status: ValidatorStatus::Active,
@@ -368,7 +364,7 @@ pub mod pallet {
                 RejoinCooldown::<T>::remove(&who);
             }
 
-            let amount = T::LockAmount::get();
+            let amount = Self::required_lock(&who);
             let duration = T::LockDuration::get();
 
             ensure!(
@@ -448,6 +444,17 @@ pub mod pallet {
 const LOG_TARGET: &str = "runtime::validator";
 
 impl<T: Config> Pallet<T> {
+    /// Stake required from `who` when joining the validator set. A zero
+    /// amount never places a currency lock because `set_lock` treats zero
+    /// as removal.
+    fn required_lock(who: &T::AccountId) -> BalanceOf<T> {
+        if T::StakeExempt::contains(who) {
+            Zero::zero()
+        } else {
+            T::LockAmount::get()
+        }
+    }
+
     /// Record `who` as offline for the current session.
     ///
     /// Intended to be invoked by the runtime adapter that bridges

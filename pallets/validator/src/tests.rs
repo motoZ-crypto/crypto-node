@@ -3,7 +3,7 @@ use crate::{
     OfflineThisSession, EquivocationThisSession, RejoinCooldown, ValidatorLocks, ValidatorStatus,
 };
 use frame_support::{assert_noop, assert_ok, traits::Get};
-use sp_runtime::{traits::Dispatchable, DispatchError, TokenError};
+use sp_runtime::{traits::Dispatchable, BuildStorage, DispatchError, TokenError};
 
 // region: lock
 
@@ -1015,6 +1015,93 @@ fn rejoin_after_equivocation_cooldown_expired_succeeds() {
         assert_ok!(Validator::lock(RuntimeOrigin::signed(ALICE)));
         assert_eq!(ValidatorLocks::<Test>::get(ALICE).unwrap().status, ValidatorStatus::Active);
         assert!(RejoinCooldown::<Test>::get(ALICE).is_none());
+    });
+}
+
+// endregion
+
+// region: stake exemption
+
+#[test]
+fn exempt_account_locks_with_zero_balance() {
+    let lock_duration: u64 = <Test as crate::Config>::LockDuration::get();
+
+    new_test_ext(vec![]).execute_with(|| {
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(EXEMPT)));
+
+        let lock = ValidatorLocks::<Test>::get(EXEMPT).expect("lock recorded");
+        assert_eq!(
+            lock,
+            LockInfo {
+                amount: 0,
+                lock_block: 1,
+                expiry_block: 1 + lock_duration,
+                status: ValidatorStatus::Active,
+            }
+        );
+        // A zero amount places no currency lock.
+        assert!(pallet_balances::Locks::<Test>::get(EXEMPT).is_empty());
+        assert_eq!(PendingValidators::<Test>::get().to_vec(), vec![EXEMPT]);
+        System::assert_last_event(
+            Event::ValidatorLocked { who: EXEMPT, amount: 0, expiry_block: 1 + lock_duration }
+                .into(),
+        );
+    });
+}
+
+#[test]
+fn exempt_account_rejoin_checks_cooldown_but_not_stake() {
+    let rejoin_cooldown: u64 = <Test as crate::Config>::RejoinCooldownPeriod::get();
+
+    new_test_ext(vec![]).execute_with(|| {
+        RejoinCooldown::<Test>::insert(EXEMPT, rejoin_cooldown);
+
+        // Exemption skips the stake but not the cooldown.
+        System::set_block_number(rejoin_cooldown);
+        assert_noop!(
+            Validator::lock(RuntimeOrigin::signed(EXEMPT)),
+            Error::<Test>::InCooldown
+        );
+
+        // Past the deadline the rejoin succeeds without any balance.
+        System::set_block_number(rejoin_cooldown + 1);
+        assert_ok!(Validator::lock(RuntimeOrigin::signed(EXEMPT)));
+        assert_eq!(ValidatorLocks::<Test>::get(EXEMPT).unwrap().amount, 0);
+        assert!(RejoinCooldown::<Test>::get(EXEMPT).is_none());
+    });
+}
+
+// endregion
+
+// region: genesis
+
+#[test]
+fn genesis_validator_needs_no_endowment() {
+    let lock_duration: u64 = <Test as crate::Config>::LockDuration::get();
+
+    let mut t = frame_system::GenesisConfig::<Test>::default()
+        .build_storage()
+        .unwrap();
+    crate::GenesisConfig::<Test> {
+        initial_validators: vec![ALICE],
+        ..Default::default()
+    }
+    .assimilate_storage(&mut t)
+    .unwrap();
+    let mut ext: sp_io::TestExternalities = t.into();
+    ext.execute_with(|| {
+        assert_eq!(DesiredValidators::<Test>::get().to_vec(), vec![ALICE]);
+        let lock = ValidatorLocks::<Test>::get(ALICE).expect("lock recorded");
+        assert_eq!(
+            lock,
+            LockInfo {
+                amount: 0,
+                lock_block: 0,
+                expiry_block: lock_duration,
+                status: ValidatorStatus::Active,
+            }
+        );
+        assert!(pallet_balances::Locks::<Test>::get(ALICE).is_empty());
     });
 }
 
