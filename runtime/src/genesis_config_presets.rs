@@ -12,10 +12,9 @@ use sp_core::{H160, U256};
 use sp_genesis_builder::{self, PresetId};
 use sp_keyring::{Ed25519Keyring, Sr25519Keyring};
 
-/// Per-account starting balance for the well-known Frontier dev EVM accounts
-/// pre-funded by every preset (including `integration`). One million UNIT is
-/// far more than any tooling test needs, while still leaving headroom against
-/// the 1 billion UNIT total supply seeded into the substrate-side balances.
+/// Per-account starting balance for the well-known Frontier dev EVM accounts,
+/// pre-funded only by the development-facing presets (dev / local /
+/// integration). One million UNIT is far more than any tooling test needs.
 const DEV_EVM_ACCOUNT_BALANCE: u128 = 1_000_000 * UNIT;
 
 /// Genesis treasury endowment. 600M NUMN seeded once into the on-chain treasury
