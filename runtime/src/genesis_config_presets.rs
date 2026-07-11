@@ -5,37 +5,26 @@ use crate::{
 use alloc::{collections::BTreeMap, vec, vec::Vec};
 use fp_evm::GenesisAccount;
 use frame_support::build_struct_json_patch;
+use hex_literal::hex;
 use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 use serde_json::Value;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
-use sp_core::{H160, U256};
+use sp_core::{crypto::UncheckedInto, H160, U256};
 use sp_genesis_builder::{self, PresetId};
 use sp_keyring::{Ed25519Keyring, Sr25519Keyring};
 
-/// Genesis issuance minted to the treasury by the testnet and mainnet
-/// presets. The remaining 400 million UNIT of the 1 billion UNIT supply cap
-/// is emitted over time as mining rewards.
-const GENESIS_ISSUANCE: u128 = 600_000_000 * UNIT;
+const GENESIS_TREASURY_ISSUANCE: u128 = 400_000_000 * UNIT;
+const GENESIS_AIRDROP_ISSUANCE: u128 = 200_000_000 * UNIT;
 
-/// Starting balance for the placeholder testnet operator accounts. Kept small
-/// so the testnet ledger stays dominated by the treasury and mirrors the
-/// mainnet genesis shape.
-const TESTNET_ACCOUNT_BALANCE: u128 = 1_000_000 * UNIT;
+const INITIAL_DIFFICULTY: u32 = 1_000;
 
-/// Per-account starting balance for the well-known Frontier dev EVM accounts
-/// pre-funded by the dev, local and integration presets. The EVM genesis
-/// mints these funds on top of the balances pallet issuance, pushing dev
-/// chains past the nominal supply cap. That is harmless on throwaway
-/// networks, and one million UNIT is far more than any tooling test needs.
 const DEV_EVM_ACCOUNT_BALANCE: u128 = 1_000_000 * UNIT;
+const DEV_ACCOUNT_BALANCE: u128 = 1_000_000 * UNIT;
 
-/// Well-known Frontier dev ECDSA accounts pre-funded on the EVM side.
-///
-/// These six addresses (Alith, Baltathar, Charleth, Dorothy, Ethan, Faith)
-/// have publicly documented private keys shipped with every Frontier-based
-/// node template, so Hardhat / Foundry / MetaMask can drive the chain
-/// out-of-the-box without first having to bridge funds from a substrate
-/// account. They MUST NOT be used in any non-development network.
+const DEV_EVM_CHAIN_ID: u64 = 320262;
+const TEST_EVM_CHAIN_ID: u64 = 320261;
+const MAIN_EVM_CHAIN_ID: u64 = 32026;
+
 fn dev_evm_accounts() -> BTreeMap<H160, GenesisAccount> {
 	let balance = U256::from(DEV_EVM_ACCOUNT_BALANCE);
 	let make = |bytes: [u8; 20]| {
@@ -50,288 +39,163 @@ fn dev_evm_accounts() -> BTreeMap<H160, GenesisAccount> {
 		)
 	};
 	[
-		// Alith
-		make([
-			0xf2, 0x4f, 0xf3, 0xa9, 0xcf, 0x04, 0xc7, 0x1d, 0xbc, 0x94, 0xd0, 0xb5, 0x66, 0xf7,
-			0xa2, 0x7b, 0x94, 0x56, 0x6c, 0xac,
-		]),
-		// Baltathar
-		make([
-			0x3c, 0xd0, 0xa7, 0x05, 0xa2, 0xdc, 0x65, 0xe5, 0xb1, 0xe1, 0x20, 0x58, 0x96, 0xba,
-			0xa2, 0xbe, 0x8a, 0x07, 0xc6, 0xe0,
-		]),
-		// Charleth
-		make([
-			0x79, 0x8d, 0x4b, 0xa9, 0xba, 0xf0, 0x06, 0x4e, 0xc1, 0x9e, 0xb4, 0xf0, 0xa1, 0xa4,
-			0x57, 0x85, 0xae, 0x9d, 0x6d, 0xfc,
-		]),
-		// Dorothy
-		make([
-			0x77, 0x35, 0x39, 0xd4, 0xac, 0x0e, 0x78, 0x62, 0x33, 0xd9, 0x0a, 0x23, 0x36, 0x54,
-			0xcc, 0xee, 0x26, 0xa6, 0x13, 0xd9,
-		]),
-		// Ethan
-		make([
-			0xff, 0x64, 0xd3, 0xf6, 0xef, 0xe2, 0x31, 0x7e, 0xe2, 0x80, 0x7d, 0x22, 0x3a, 0x0b,
-			0xdc, 0x4c, 0x0c, 0x49, 0xdf, 0xdb,
-		]),
-		// Faith
-		make([
-			0xc0, 0xf0, 0xf4, 0xab, 0x32, 0x4c, 0x46, 0xe5, 0x5d, 0x02, 0xd0, 0x03, 0x33, 0x43,
-			0xb4, 0xbe, 0x8a, 0x55, 0x53, 0x2d,
-		]),
+		make([0xf2, 0x4f, 0xf3, 0xa9, 0xcf, 0x04, 0xc7, 0x1d, 0xbc, 0x94, 0xd0, 0xb5, 0x66, 0xf7, 0xa2, 0x7b, 0x94, 0x56, 0x6c, 0xac]), // Alith
+		make([0x3c, 0xd0, 0xa7, 0x05, 0xa2, 0xdc, 0x65, 0xe5, 0xb1, 0xe1, 0x20, 0x58, 0x96, 0xba, 0xa2, 0xbe, 0x8a, 0x07, 0xc6, 0xe0]), // Baltathar
+		make([0x79, 0x8d, 0x4b, 0xa9, 0xba, 0xf0, 0x06, 0x4e, 0xc1, 0x9e, 0xb4, 0xf0, 0xa1, 0xa4, 0x57, 0x85, 0xae, 0x9d, 0x6d, 0xfc]), // Charleth
+		make([0x77, 0x35, 0x39, 0xd4, 0xac, 0x0e, 0x78, 0x62, 0x33, 0xd9, 0x0a, 0x23, 0x36, 0x54, 0xcc, 0xee, 0x26, 0xa6, 0x13, 0xd9]), // Dorothy
+		make([0xff, 0x64, 0xd3, 0xf6, 0xef, 0xe2, 0x31, 0x7e, 0xe2, 0x80, 0x7d, 0x22, 0x3a, 0x0b, 0xdc, 0x4c, 0x0c, 0x49, 0xdf, 0xdb]), // Ethan
+		make([0xc0, 0xf0, 0xf4, 0xab, 0x32, 0x4c, 0x46, 0xe5, 0x5d, 0x02, 0xd0, 0x03, 0x33, 0x43, 0xb4, 0xbe, 0x8a, 0x55, 0x53, 0x2d]), // Faith
 	]
 	.into_iter()
 	.collect()
 }
 
-/// Derive an `ImOnlineId` from an Sr25519 dev keyring entry.
-///
-/// Heartbeat keys live under their own key type (`imon`) but the underlying
-/// curve is sr25519; reusing the dev keyring keeps the dev/local presets
-/// reproducible and matches the keys that `--alice`-style flags insert.
-fn im_online_from_keyring(keyring: Sr25519Keyring) -> ImOnlineId {
-	keyring.public().into()
+fn dev_validators() -> Vec<(AccountId, GrandpaId, ImOnlineId)> {
+	vec![
+		(
+			Sr25519Keyring::Alice.to_account_id(),
+			Ed25519Keyring::Alice.public().into(),
+			Sr25519Keyring::Alice.public().into(),
+		),
+		(
+			Sr25519Keyring::Bob.to_account_id(),
+			Ed25519Keyring::Bob.public().into(),
+			Sr25519Keyring::Bob.public().into(),
+		),
+		(
+			Sr25519Keyring::Charlie.to_account_id(),
+			Ed25519Keyring::Charlie.public().into(),
+			Sr25519Keyring::Charlie.public().into(),
+		),
+	]
 }
 
-/// Build the `(validator, validator, SessionKeys)` triples the session pallet
-/// expects. The account repeats because the validator is also the owner of its
-/// registered session keys.
-fn session_keys(
-	validators: &[(AccountId, GrandpaId, ImOnlineId)],
-) -> Vec<(AccountId, AccountId, SessionKeys)> {
-	validators
+fn live_validators() -> Vec<(AccountId, GrandpaId, ImOnlineId)> {
+	vec![
+		(
+			hex!("7ebc23de675cd320952153f65eed8636ede3ee914d38d86a03b8690c5ef87745").into(),
+			hex!("23209a84d105da8b36c9a90c00d92f518f2599d7ebe502a393ad4e22c5d4839a").unchecked_into(),
+			hex!("dc5fa9c5793d7543808c84773f3cbce7928ccf4ce94568c7d4ab7a0e53de5037").unchecked_into(),
+		),
+		(
+			hex!("f83e5c47238ae444ef3165741b0c2a26a15bfb910655376680dc86d47032ee71").into(),
+			hex!("fdeb4cc2c3ce7049ffe91c86e4c777d5d381cf4a66a794d254175c4f68d51f47").unchecked_into(),
+			hex!("9c3c925508d53f37ad9c9db0807f2cbd283d02ef34481d90113c2ec9ec195662").unchecked_into(),
+		),
+		(
+			hex!("a08b338e366fdd4d7a4e66cd6ff1c8fe3f8d8b58f72ea980938612df2a12cb2f").into(),
+			hex!("98c5493056057f89d374b64f5dc476f796cf64901d3f625e870c406d610f6fcb").unchecked_into(),
+			hex!("9ac75734257b6aaf82e526030783b3f4fa9823a22c5fcf23b5115642ad12a871").unchecked_into(),
+		),
+	]
+}
+
+fn dev_balances() -> Vec<(AccountId, u128)> {
+	vec![
+		(Sr25519Keyring::Alice  .to_account_id(), DEV_ACCOUNT_BALANCE),
+		(Sr25519Keyring::Bob    .to_account_id(), DEV_ACCOUNT_BALANCE),
+		(Sr25519Keyring::Charlie.to_account_id(), DEV_ACCOUNT_BALANCE),
+		(Sr25519Keyring::Dave   .to_account_id(), DEV_ACCOUNT_BALANCE),
+		(Sr25519Keyring::Eve    .to_account_id(), DEV_ACCOUNT_BALANCE),
+		(Sr25519Keyring::Ferdie .to_account_id(), DEV_ACCOUNT_BALANCE)
+	]
+}
+
+fn live_balances() -> Vec<(AccountId, u128)> {
+	vec![
+		(crate::configs::TreasuryAccount::get(), GENESIS_TREASURY_ISSUANCE),
+		(hex!("583fb79e17f3a9fabfee4068410b3d9ebb64465dba8e6342cd7f59272509983a").into(), GENESIS_AIRDROP_ISSUANCE)
+	]
+}
+
+
+fn genesis_patch(
+	balances: Vec<(AccountId, u128)>,
+	sudo_key: Option<AccountId>,
+	validators: Vec<(AccountId, GrandpaId, ImOnlineId)>,
+	chain_id: u64,
+	evm_accounts: BTreeMap<H160, GenesisAccount>,
+	initial_difficulty: U256
+) -> Value {
+
+	let session_keys = validators
 		.iter()
 		.cloned()
 		.map(|(account, grandpa, im_online)| {
 			(account.clone(), account, SessionKeys { grandpa, im_online })
 		})
-		.collect()
-}
+		.collect();
 
-pub fn development_config_genesis() -> Value {
-	let endowed_accounts = vec![
-		Sr25519Keyring::Alice.to_account_id(),
-		Sr25519Keyring::Bob.to_account_id(),
-		Sr25519Keyring::Charlie.to_account_id(),
-		Sr25519Keyring::AliceStash.to_account_id(),
-		Sr25519Keyring::BobStash.to_account_id(),
-	];
-	let validators: Vec<(AccountId, GrandpaId, ImOnlineId)> = vec![
-		(
-			Sr25519Keyring::Alice.to_account_id(),
-			Ed25519Keyring::Alice.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Alice),
-		),
-		(
-			Sr25519Keyring::Bob.to_account_id(),
-			Ed25519Keyring::Bob.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Bob),
-		),
-		(
-			Sr25519Keyring::Charlie.to_account_id(),
-			Ed25519Keyring::Charlie.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Charlie),
-		),
-	];
-	let total_supply: u128 = 1_000_000_000 * UNIT;
-	let balance_per_account = total_supply / endowed_accounts.len() as u128;
 	build_struct_json_patch!(RuntimeGenesisConfig {
-		balances: BalancesConfig {
-			balances: endowed_accounts
-				.iter()
-				.cloned()
-				.map(|k| (k, balance_per_account))
-				.collect::<Vec<_>>(),
-		},
-		sudo: SudoConfig { key: Some(Sr25519Keyring::Alice.to_account_id()) },
-		difficulty: DifficultyConfig { initial_difficulty: U256::from(1_000u64) },
-		session: SessionConfig { keys: session_keys(&validators) },
+		balances: BalancesConfig { balances },
+		sudo: SudoConfig { key: sudo_key },
+		difficulty: DifficultyConfig { initial_difficulty },
+		session: SessionConfig { keys: session_keys },
 		validator: ValidatorConfig {
 			initial_validators: validators.iter().map(|(a, _, _)| a.clone()).collect::<Vec<_>>(),
 			..Default::default()
 		},
-		// The dev, local and integration presets share one chain id, kept
-		// distinct from testnet and mainnet so EIP-155 signatures never
-		// replay across networks.
-		evm_chain_id: EVMChainIdConfig { chain_id: 320262, ..Default::default() },
-		evm: EVMConfig { accounts: dev_evm_accounts(), ..Default::default() },
+		evm_chain_id: EVMChainIdConfig { chain_id, ..Default::default() },
+		evm: EVMConfig { accounts: evm_accounts, ..Default::default() },
 	})
+}
+
+
+pub fn development_config_genesis() -> Value {
+	genesis_patch(
+		dev_balances(),
+		Some(Sr25519Keyring::Alice.to_account_id()),
+		dev_validators(),
+		DEV_EVM_CHAIN_ID,
+		dev_evm_accounts(),
+		INITIAL_DIFFICULTY.into()
+	)
 }
 
 pub fn local_config_genesis() -> Value {
-	let endowed_accounts = Sr25519Keyring::iter()
-		.filter(|v| v != &Sr25519Keyring::One && v != &Sr25519Keyring::Two)
-		.map(|v| v.to_account_id())
-		.collect::<Vec<_>>();
-	let validators: Vec<(AccountId, GrandpaId, ImOnlineId)> = vec![
-		(
-			Sr25519Keyring::Alice.to_account_id(),
-			Ed25519Keyring::Alice.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Alice),
-		),
-		(
-			Sr25519Keyring::Bob.to_account_id(),
-			Ed25519Keyring::Bob.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Bob),
-		),
-		(
-			Sr25519Keyring::Charlie.to_account_id(),
-			Ed25519Keyring::Charlie.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Charlie),
-		),
-	];
-	let total_supply: u128 = 1_000_000_000 * UNIT;
-	let balance_per_account = total_supply / endowed_accounts.len() as u128;
-	build_struct_json_patch!(RuntimeGenesisConfig {
-		balances: BalancesConfig {
-			balances: endowed_accounts
-				.iter()
-				.cloned()
-				.map(|k| (k, balance_per_account))
-				.collect::<Vec<_>>(),
-		},
-		sudo: SudoConfig { key: Some(Sr25519Keyring::Alice.to_account_id()) },
-		difficulty: DifficultyConfig { initial_difficulty: U256::from(1_000u64) },
-		session: SessionConfig { keys: session_keys(&validators) },
-		validator: ValidatorConfig {
-			initial_validators: validators.iter().map(|(a, _, _)| a.clone()).collect::<Vec<_>>(),
-			..Default::default()
-		},
-		evm_chain_id: EVMChainIdConfig { chain_id: 320262, ..Default::default() },
-		evm: EVMConfig { accounts: dev_evm_accounts(), ..Default::default() },
-	})
+	genesis_patch(
+		dev_balances(),
+		Some(Sr25519Keyring::Alice.to_account_id()),
+		dev_validators(),
+		DEV_EVM_CHAIN_ID,
+		dev_evm_accounts(),
+		INITIAL_DIFFICULTY.into()
+	)
 }
 
 pub fn integration_config_genesis() -> Value {
-	let endowed_accounts = vec![
-		Sr25519Keyring::Alice.to_account_id(),
-		Sr25519Keyring::Bob.to_account_id(),
-		Sr25519Keyring::Charlie.to_account_id(),
-		Sr25519Keyring::Dave.to_account_id(),
-		Sr25519Keyring::Eve.to_account_id(),
-		Sr25519Keyring::Ferdie.to_account_id(),
-		Sr25519Keyring::AliceStash.to_account_id(),
-		Sr25519Keyring::BobStash.to_account_id(),
-	];
-	let validators: Vec<(AccountId, GrandpaId, ImOnlineId)> = vec![
-		(
-			Sr25519Keyring::Alice.to_account_id(),
-			Ed25519Keyring::Alice.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Alice),
-		),
-		(
-			Sr25519Keyring::Bob.to_account_id(),
-			Ed25519Keyring::Bob.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Bob),
-		),
-		(
-			Sr25519Keyring::Charlie.to_account_id(),
-			Ed25519Keyring::Charlie.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Charlie),
-		),
-	];
-	let total_supply: u128 = 1_000_000_000 * UNIT;
-	let balance_per_account = total_supply / endowed_accounts.len() as u128;
-	build_struct_json_patch!(RuntimeGenesisConfig {
-		balances: BalancesConfig {
-			balances: endowed_accounts
-				.iter()
-				.cloned()
-				.map(|k| (k, balance_per_account))
-				.collect::<Vec<_>>(),
-		},
-		sudo: SudoConfig { key: Some(Sr25519Keyring::Alice.to_account_id()) },
-		difficulty: DifficultyConfig { initial_difficulty: U256::from(1_000u64) },
-		session: SessionConfig { keys: session_keys(&validators) },
-		validator: ValidatorConfig {
-			initial_validators: validators.iter().map(|(a, _, _)| a.clone()).collect::<Vec<_>>(),
-			..Default::default()
-		},
-		evm_chain_id: EVMChainIdConfig { chain_id: 320262, ..Default::default() },
-		evm: EVMConfig { accounts: dev_evm_accounts(), ..Default::default() },
-	})
+	genesis_patch(
+		dev_balances(),
+		Some(Sr25519Keyring::Alice.to_account_id()),
+		dev_validators(),
+		DEV_EVM_CHAIN_ID,
+		dev_evm_accounts(),
+		INITIAL_DIFFICULTY.into()
+	)
 }
 
 pub fn testnet_config_genesis() -> Value {
-	let endowed_accounts = vec![
-		Sr25519Keyring::Alice.to_account_id(),
-		Sr25519Keyring::Bob.to_account_id(),
-		Sr25519Keyring::Charlie.to_account_id(),
-		Sr25519Keyring::Dave.to_account_id(),
-		Sr25519Keyring::Eve.to_account_id(),
-		Sr25519Keyring::Ferdie.to_account_id(),
-		Sr25519Keyring::AliceStash.to_account_id(),
-		Sr25519Keyring::BobStash.to_account_id(),
-	];
-	let validators: Vec<(AccountId, GrandpaId, ImOnlineId)> = vec![
-		(
-			Sr25519Keyring::Alice.to_account_id(),
-			Ed25519Keyring::Alice.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Alice),
-		),
-		(
-			Sr25519Keyring::Bob.to_account_id(),
-			Ed25519Keyring::Bob.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Bob),
-		),
-		(
-			Sr25519Keyring::Charlie.to_account_id(),
-			Ed25519Keyring::Charlie.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Charlie),
-		),
-	];
-	let mut balances: Vec<(AccountId, u128)> = endowed_accounts
-		.iter()
-		.cloned()
-		.map(|k| (k, TESTNET_ACCOUNT_BALANCE))
-		.collect();
-	balances.push((crate::configs::TreasuryAccount::get(), GENESIS_ISSUANCE));
-	build_struct_json_patch!(RuntimeGenesisConfig {
-		balances: BalancesConfig { balances },
-		difficulty: DifficultyConfig { initial_difficulty: U256::from(1_000u64) },
-		session: SessionConfig { keys: session_keys(&validators) },
-		validator: ValidatorConfig {
-			initial_validators: validators.iter().map(|(a, _, _)| a.clone()).collect::<Vec<_>>(),
-			..Default::default()
-		},
-		evm_chain_id: EVMChainIdConfig { chain_id: 320261, ..Default::default() },
-		evm: EVMConfig { accounts: BTreeMap::new(), ..Default::default() },
-	})
+	genesis_patch(
+		live_balances(),
+		None,
+		live_validators(),
+		TEST_EVM_CHAIN_ID,
+		BTreeMap::new(),
+		INITIAL_DIFFICULTY.into()
+	)
 }
 
 pub fn mainnet_config_genesis() -> Value {
-	let validators: Vec<(AccountId, GrandpaId, ImOnlineId)> = vec![
-		(
-			Sr25519Keyring::Alice.to_account_id(),
-			Ed25519Keyring::Alice.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Alice),
-		),
-		(
-			Sr25519Keyring::Bob.to_account_id(),
-			Ed25519Keyring::Bob.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Bob),
-		),
-		(
-			Sr25519Keyring::Charlie.to_account_id(),
-			Ed25519Keyring::Charlie.public().into(),
-			im_online_from_keyring(Sr25519Keyring::Charlie),
-		),
-	];
-	build_struct_json_patch!(RuntimeGenesisConfig {
-		balances: BalancesConfig {
-			balances: vec![(crate::configs::TreasuryAccount::get(), GENESIS_ISSUANCE)],
-		},
-		difficulty: DifficultyConfig { initial_difficulty: U256::from(1_000u64) },
-		session: SessionConfig { keys: session_keys(&validators) },
-		validator: ValidatorConfig {
-			initial_validators: validators.iter().map(|(a, _, _)| a.clone()).collect::<Vec<_>>(),
-			..Default::default()
-		},
-		evm_chain_id: EVMChainIdConfig { chain_id: 32026, ..Default::default() },
-		evm: EVMConfig { accounts: BTreeMap::new(), ..Default::default() },
-	})
+	genesis_patch(
+		live_balances(),
+		None,
+		live_validators(),
+		MAIN_EVM_CHAIN_ID,
+		BTreeMap::new(),
+		INITIAL_DIFFICULTY.into()
+	)
 }
+
 
 pub const INTEGRATION_RUNTIME_PRESET: &str = "integration";
 pub const TESTNET_RUNTIME_PRESET: &str = "testnet";
