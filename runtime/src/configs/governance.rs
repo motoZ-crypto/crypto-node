@@ -11,7 +11,7 @@ use frame_support::{
 	parameter_types,
 	traits::{ConstU32, EitherOf},
 };
-use frame_system::{EnsureRoot, EnsureRootWithSuccess, EnsureSigned};
+use frame_system::{EnsureRootWithSuccess, EnsureSigned};
 use pallet_referenda::{Curve, Track, TrackInfo};
 use sp_runtime::{str_array as s, FixedI64};
 
@@ -207,8 +207,8 @@ impl pallet_referenda::Config for Runtime {
 	type Scheduler = Scheduler;
 	type Currency = Balances;
 	type SubmitOrigin = EnsureSigned<AccountId>;
-	type CancelOrigin = EnsureRoot<AccountId>;
-	type KillOrigin = EnsureRoot<AccountId>;
+	type CancelOrigin = pallet_prime::EnsurePrime<Runtime>;
+	type KillOrigin = pallet_prime::EnsurePrime<Runtime>;
 	type Slash = Treasury;
 	type Votes = pallet_conviction_voting::VotesOf<Runtime>;
 	type Tally = pallet_conviction_voting::TallyOf<Runtime>;

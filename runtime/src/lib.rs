@@ -210,9 +210,6 @@ mod runtime {
 	#[runtime::pallet_index(3)]
 	pub type TransactionPayment = pallet_transaction_payment;
 
-	#[runtime::pallet_index(255)]
-	pub type Sudo = pallet_sudo;
-
 	#[runtime::pallet_index(4)]
 	pub type BlockReward = pallet_reward;
 

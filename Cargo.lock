@@ -7449,21 +7449,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-sudo"
-version = "46.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=stable2603#9e54ba9c63b81b630ded4bc798f3b9c406060545"
-dependencies = [
- "docify",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "parity-scale-codec",
- "scale-info",
- "sp-io",
- "sp-runtime",
-]
-
-[[package]]
 name = "pallet-timestamp"
 version = "45.0.0"
 source = "git+https://github.com/paritytech/polkadot-sdk?branch=stable2603#9e54ba9c63b81b630ded4bc798f3b9c406060545"
@@ -11551,7 +11536,6 @@ dependencies = [
  "pallet-reward",
  "pallet-scheduler",
  "pallet-session",
- "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
