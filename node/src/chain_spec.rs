@@ -1,6 +1,6 @@
 use sc_service::ChainType;
 use serde_json::json;
-use solochain_template_runtime::{
+use numen_runtime::{
 	configs::SS58Prefix, genesis_config_presets::{INTEGRATION_RUNTIME_PRESET, TESTNET_RUNTIME_PRESET, MAINNET_RUNTIME_PRESET}, WASM_BINARY,
 };
 

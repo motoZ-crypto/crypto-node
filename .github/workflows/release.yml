@@ -60,7 +60,7 @@ jobs:
       - name: Stage artifacts
         run: |
           mkdir -p stage
-          cp target/release/solochain-template-node stage/
+          cp target/release/numen-node stage/
           cp zombienet/integration/integration-raw.json stage/
       - uses: actions/upload-artifact@v4
         with:
@@ -83,8 +83,8 @@ jobs:
       - name: Restore artifacts
         run: |
           mkdir -p target/release
-          cp stage/solochain-template-node target/release/
-          chmod +x target/release/solochain-template-node
+          cp stage/numen-node target/release/
+          chmod +x target/release/numen-node
           cp stage/integration-raw.json zombienet/integration/
       - name: Install zombienet
         run: |
@@ -105,9 +105,9 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            asset: solochain-template-node-linux-x86_64
+            asset: numen-node-linux-x86_64
           - os: macos-latest
-            asset: solochain-template-node-macos-arm64
+            asset: numen-node-macos-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -126,7 +126,7 @@ jobs:
         timeout-minutes: 30
 
       - name: Rename binary
-        run: cp target/release/solochain-template-node ${{ matrix.asset }}
+        run: cp target/release/numen-node ${{ matrix.asset }}
 
       - uses: actions/upload-artifact@v4
         with:

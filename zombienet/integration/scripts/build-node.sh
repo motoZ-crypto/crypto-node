@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Build the solochain-template-node binary with the `zombienet-runtime` feature.
+# Build the numen-node binary with the `zombienet-runtime` feature.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
 
-cargo build --release -p solochain-template-node --features zombienet-runtime
+cargo build --release -p numen-node --features zombienet-runtime
 
-BIN="$ROOT/target/release/solochain-template-node"
+BIN="$ROOT/target/release/numen-node"
 echo "Built: $BIN"
 "$BIN" --version
 

@@ -17,7 +17,7 @@ Ethereum-compatible JSON-RPC.
 
 ```bash
 # 1. start a single-node dev chain in another terminal
-./target/release/solochain-template-node --dev --rpc-cors all --rpc-port 9944
+./target/release/numen-node --dev --rpc-cors all --rpc-port 9944
 
 # 2. install JS deps
 cd tests/evm-tooling/hardhat

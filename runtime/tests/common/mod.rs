@@ -1,6 +1,6 @@
 //! Externalities builder shared by the runtime tests.
 
-use solochain_template_runtime::{Runtime, System};
+use numen_runtime::{Runtime, System};
 use sp_io::TestExternalities;
 use sp_runtime::BuildStorage;
 

@@ -9,7 +9,7 @@ use sc_consensus_pow::PowBlockImport;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block, AccountId};
+use numen_runtime::{self, apis::RuntimeApi, opaque::Block, AccountId};
 use sp_core::{crypto::Ss58Codec, H256, U256};
 use std::{path::Path, sync::{Arc, Mutex}, time::Duration};
 

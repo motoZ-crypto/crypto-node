@@ -10,7 +10,7 @@ use common::new_test_ext;
 use fp_evm::MAX_TRANSACTION_GAS_LIMIT;
 use frame_support::traits::tokens::fungible::Mutate;
 use pallet_evm::{AddressMapping, Runner};
-use solochain_template_runtime::{AccountId, Balances, Runtime, EXISTENTIAL_DEPOSIT, UNIT};
+use numen_runtime::{AccountId, Balances, Runtime, EXISTENTIAL_DEPOSIT, UNIT};
 use sp_core::{H160, U256};
 
 /// Two gwei, comfortably above the 1 gwei `DefaultBaseFeePerGas`.

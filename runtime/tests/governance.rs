@@ -9,7 +9,7 @@ use frame_support::{
 	traits::{tokens::fungible::Mutate, OnInitialize},
 };
 use pallet_bounties::BountyStatus;
-use solochain_template_runtime::{
+use numen_runtime::{
 	configs, AccountId, Balance, Balances, BlockNumber, Bounties, ChildBounties, Runtime,
 	RuntimeOrigin, System, Treasury, UNIT,
 };

@@ -2,7 +2,7 @@
 //
 // `cryptoNode` connects to the HTTP JSON-RPC port exposed by:
 //
-//   ./target/release/solochain-template-node \
+//   ./target/release/numen-node \
 //       --dev --rpc-port 9944 --rpc-cors all
 //
 // Accounts are the publicly documented Frontier dev keys pre-funded by every
