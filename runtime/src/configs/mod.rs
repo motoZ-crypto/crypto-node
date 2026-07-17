@@ -186,12 +186,6 @@ impl pallet_transaction_payment::Config for Runtime {
 	type WeightInfo = pallet_transaction_payment::weights::SubstrateWeight<Runtime>;
 }
 
-impl pallet_sudo::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type RuntimeCall = RuntimeCall;
-	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
-}
-
 impl pallet_prime::Config for Runtime {
 	type WeightInfo = pallet_prime::weights::SubstrateWeight<Runtime>;
 }
@@ -621,7 +615,7 @@ parameter_types! {
 impl pallet_treasury::Config for Runtime {
 	type PalletId = TreasuryPalletId;
 	type Currency = Balances;
-	type RejectOrigin = EnsureRoot<AccountId>;
+	type RejectOrigin = pallet_prime::EnsurePrime<Runtime>;
 	type RuntimeEvent = RuntimeEvent;
 	type SpendPeriod = SpendPeriod;
 	type Burn = Burn;

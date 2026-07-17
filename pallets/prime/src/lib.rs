@@ -1,7 +1,7 @@
 //! # Prime
 //!
-//! A downgraded sudo privilege that only allows runtime upgrades and
-//! killing proposals on the spender track.
+//! A downgraded sudo privilege that only allows runtime upgrades,
+//! cancelling or killing referenda and rejecting treasury spends.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -16,6 +16,10 @@ mod tests;
 
 pub mod weights;
 pub use weights::*;
+
+use core::marker::PhantomData;
+use frame_support::traits::EnsureOrigin;
+use frame_system::RawOrigin;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -33,7 +37,7 @@ pub mod pallet {
 		type WeightInfo: WeightInfo;
 	}
 
-	/// Account allowed to upgrade the runtime and rotate this key.
+	/// Account holding the prime privileges.
 	#[pallet::storage]
 	pub type Key<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
 
@@ -97,5 +101,25 @@ pub mod pallet {
 			ensure!(Key::<T>::get().as_ref() == Some(&who), Error::<T>::RequirePrime);
 			Ok(who)
 		}
+	}
+}
+
+/// Ensure the origin is a signed account matching the stored prime key.
+pub struct EnsurePrime<T>(PhantomData<T>);
+
+impl<T: Config> EnsureOrigin<T::RuntimeOrigin> for EnsurePrime<T> {
+	type Success = ();
+
+	fn try_origin(o: T::RuntimeOrigin) -> Result<Self::Success, T::RuntimeOrigin> {
+		o.into().and_then(|raw| match raw {
+			RawOrigin::Signed(ref who) if Key::<T>::get().as_ref() == Some(who) => Ok(()),
+			raw => Err(T::RuntimeOrigin::from(raw)),
+		})
+	}
+
+	#[cfg(feature = "runtime-benchmarks")]
+	fn try_successful_origin() -> Result<T::RuntimeOrigin, ()> {
+		let key = Key::<T>::get().ok_or(())?;
+		Ok(RawOrigin::Signed(key).into())
 	}
 }

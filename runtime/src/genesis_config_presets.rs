@@ -1,6 +1,6 @@
 use crate::{
 	AccountId, BalancesConfig, DifficultyConfig, EVMChainIdConfig, EVMConfig, PrimeConfig,
-	RuntimeGenesisConfig, SessionConfig, SessionKeys, SudoConfig, ValidatorConfig, UNIT,
+	RuntimeGenesisConfig, SessionConfig, SessionKeys, ValidatorConfig, UNIT,
 };
 use alloc::{collections::BTreeMap, vec, vec::Vec};
 use fp_evm::GenesisAccount;
@@ -115,7 +115,6 @@ const PRIME_MULTISIG: [u8; 32] = hex!("db45d74546b00d6efd137e9a2ea63a3b1595bad6a
 
 fn genesis_patch(
 	balances: Vec<(AccountId, u128)>,
-	sudo_key: Option<AccountId>,
 	prime_key: Option<AccountId>,
 	validators: Vec<(AccountId, GrandpaId, ImOnlineId)>,
 	chain_id: u64,
@@ -133,7 +132,6 @@ fn genesis_patch(
 
 	build_struct_json_patch!(RuntimeGenesisConfig {
 		balances: BalancesConfig { balances },
-		sudo: SudoConfig { key: sudo_key },
 		prime: PrimeConfig { key: prime_key },
 		difficulty: DifficultyConfig { initial_difficulty },
 		session: SessionConfig { keys: session_keys },
@@ -151,7 +149,6 @@ pub fn development_config_genesis() -> Value {
 	genesis_patch(
 		dev_balances(),
 		Some(Sr25519Keyring::Alice.to_account_id()),
-		Some(Sr25519Keyring::Alice.to_account_id()),
 		dev_validators(),
 		DEV_EVM_CHAIN_ID,
 		dev_evm_accounts(),
@@ -162,7 +159,6 @@ pub fn development_config_genesis() -> Value {
 pub fn local_config_genesis() -> Value {
 	genesis_patch(
 		dev_balances(),
-		Some(Sr25519Keyring::Alice.to_account_id()),
 		Some(Sr25519Keyring::Alice.to_account_id()),
 		dev_validators(),
 		DEV_EVM_CHAIN_ID,
@@ -175,7 +171,6 @@ pub fn integration_config_genesis() -> Value {
 	genesis_patch(
 		dev_balances(),
 		Some(Sr25519Keyring::Alice.to_account_id()),
-		Some(Sr25519Keyring::Alice.to_account_id()),
 		dev_validators(),
 		DEV_EVM_CHAIN_ID,
 		dev_evm_accounts(),
@@ -186,7 +181,6 @@ pub fn integration_config_genesis() -> Value {
 pub fn testnet_config_genesis() -> Value {
 	genesis_patch(
 		live_balances(),
-		None,
 		Some(PRIME_MULTISIG.into()),
 		live_validators(),
 		TEST_EVM_CHAIN_ID,
@@ -198,7 +192,6 @@ pub fn testnet_config_genesis() -> Value {
 pub fn mainnet_config_genesis() -> Value {
 	genesis_patch(
 		live_balances(),
-		None,
 		Some(PRIME_MULTISIG.into()),
 		live_validators(),
 		MAIN_EVM_CHAIN_ID,
