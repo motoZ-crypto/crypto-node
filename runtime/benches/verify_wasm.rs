@@ -3,7 +3,7 @@
 //! Loads the real runtime blob and drives `PowVerifyApi` through
 //! `sc_executor::WasmExecutor`, the same execution path block import takes,
 //! so numbers include the executor call overhead on top of the scan itself.
-//! Run `cargo bench -p solochain-template-runtime` before and after any
+//! Run `cargo bench -p numen-runtime` before and after any
 //! parameter change to compare baselines. Numbers never gate CI.
 
 use codec::{Decode, Encode};
@@ -52,7 +52,7 @@ fn call(
 }
 
 fn wasm_verify_path(c: &mut Criterion) {
-	let blob = solochain_template_runtime::WASM_BINARY.expect("runtime wasm built");
+	let blob = numen_runtime::WASM_BINARY.expect("runtime wasm built");
 	let executor = WasmExecutor::<HostFunctions>::builder().build();
 	let wrapped = WrappedRuntimeCode(blob.into());
 	let runtime_code = RuntimeCode {

@@ -20,7 +20,7 @@ use fc_rpc::EthTask;
 use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit, FilterPool};
 use fc_storage::StorageOverride;
 
-use solochain_template_runtime::opaque::Block;
+use numen_runtime::opaque::Block;
 
 use crate::service::{FullBackend, FullClient};
 

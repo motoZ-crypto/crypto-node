@@ -7,7 +7,7 @@ use crate::{
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
-use solochain_template_runtime::{Block, EXISTENTIAL_DEPOSIT};
+use numen_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use sp_core::crypto::Ss58Codec;
 use sp_keyring::Sr25519Keyring;
 
@@ -58,7 +58,7 @@ impl SubstrateCli for Cli {
 pub fn run() -> sc_cli::Result<()> {
 
 	sp_core::crypto::set_default_ss58_version(
-		solochain_template_runtime::configs::SS58Prefix::get().into(),
+		numen_runtime::configs::SS58Prefix::get().into(),
 	);
 
 	let cli = Cli::from_args();
@@ -190,7 +190,7 @@ pub fn run() -> sc_cli::Result<()> {
 				.miner
 				.as_deref()
 				.map(|addr| {
-					solochain_template_runtime::AccountId::from_ss58check(addr)
+					numen_runtime::AccountId::from_ss58check(addr)
 						.map_err(|e| format!("invalid --miner address `{}`: {:?}", addr, e))
 				})
 				.transpose()
@@ -213,8 +213,8 @@ pub fn run() -> sc_cli::Result<()> {
 				match config.network.network_backend {
 					sc_network::config::NetworkBackendType::Libp2p => service::new_full::<
 						sc_network::NetworkWorker<
-							solochain_template_runtime::opaque::Block,
-							<solochain_template_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
+							numen_runtime::opaque::Block,
+							<numen_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
 						>,
 					>(config, mining)
 					.map_err(sc_cli::Error::Service),

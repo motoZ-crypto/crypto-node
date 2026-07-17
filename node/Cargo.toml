@@ -1,6 +1,6 @@
 [package]
-name = "solochain-template-node"
-description = "A solochain node template built with Substrate, part of Polkadot Sdk."
+name = "numen-node"
+description = "Numen node built on Polkadot SDK."
 version = "0.1.0"
 license.workspace = true
 authors.workspace = true
@@ -68,7 +68,7 @@ sc-transaction-pool-api.default-features = true
 sc-transaction-pool-api.workspace = true
 sc-transaction-pool.default-features = true
 sc-transaction-pool.workspace = true
-solochain-template-runtime.workspace = true
+numen-runtime.workspace = true
 sp-api.default-features = true
 sp-api.workspace = true
 sp-block-builder.default-features = true
@@ -119,23 +119,23 @@ substrate-build-script-utils.workspace = true
 
 [features]
 default = ["std"]
-std = ["solochain-template-runtime/std"]
+std = ["numen-runtime/std"]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
 	"frame-benchmarking-cli/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"sc-service/runtime-benchmarks",
-	"solochain-template-runtime/runtime-benchmarks",
+	"numen-runtime/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 # Enable features for providing test values.
-zombienet-runtime = ["solochain-template-runtime/zombienet-runtime"]
+zombienet-runtime = ["numen-runtime/zombienet-runtime"]
 # Enable features that allow the runtime to be tried and debugged.
 # Name might be subject to change in the near future.
 try-runtime = [
 	"frame-system/try-runtime",
 	"pallet-transaction-payment/try-runtime",
-	"solochain-template-runtime/try-runtime",
+	"numen-runtime/try-runtime",
 	"sp-runtime/try-runtime",
 ]

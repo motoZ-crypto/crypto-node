@@ -35,7 +35,7 @@ use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit, FilterPool};
 use fc_storage::StorageOverride;
 use fp_rpc::{ConvertTransaction, ConvertTransactionRuntimeApi, EthereumRuntimeRPCApi};
 
-use solochain_template_runtime::{opaque::Block, AccountId, Balance, Nonce};
+use numen_runtime::{opaque::Block, AccountId, Balance, Nonce};
 
 /// Dependencies for GRANDPA RPC.
 pub struct GrandpaDeps<B> {

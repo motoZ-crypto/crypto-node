@@ -1,6 +1,6 @@
 [package]
-name = "solochain-template-runtime"
-description = "A solochain runtime template built with Substrate, part of Polkadot Sdk."
+name = "numen-runtime"
+description = "Numen runtime built on Polkadot SDK."
 version = "0.1.0"
 license.workspace = true
 authors.workspace = true

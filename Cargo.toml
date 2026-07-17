@@ -22,7 +22,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-solochain-template-runtime = { path = "./runtime", default-features = false }
+numen-runtime = { path = "./runtime", default-features = false }
 poscan = { path = "./consensus/poscan", default-features = false }
 poscan-pow = { path = "./consensus/poscan-pow", default-features = false }
 obj-asteroid = { path = "./consensus/obj-asteroid", default-features = false }

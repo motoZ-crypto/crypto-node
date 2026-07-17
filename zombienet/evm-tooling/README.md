@@ -26,7 +26,7 @@ The corresponding zombienet end-to-end scenario lives at [`../integration/scenar
 Start a single-node dev chain that exposes both the substrate and Ethereum RPC namespaces on the same port:
 
 ```bash
-./target/release/solochain-template-node --dev --rpc-cors all --rpc-port 9944
+./target/release/numen-node --dev --rpc-cors all --rpc-port 9944
 ```
 
 ## Pre-funded development accounts

@@ -6,7 +6,7 @@ mod common;
 use common::new_test_ext;
 use frame_support::{assert_noop, assert_ok, traits::tokens::fungible::Mutate};
 use pallet_bounties::BountyStatus;
-use solochain_template_runtime::{
+use numen_runtime::{
 	configs::governance::pallet_custom_origins, Balance, Balances, Bounties, Runtime, RuntimeOrigin,
 	UNIT,
 };
