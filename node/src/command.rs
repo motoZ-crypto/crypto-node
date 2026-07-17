@@ -29,11 +29,11 @@ impl SubstrateCli for Cli {
 	}
 
 	fn support_url() -> String {
-		"support.anonymous.an".into()
+		"https://github.com/motoZ-crypto/crypto/issues".into()
 	}
 
 	fn copyright_start_year() -> i32 {
-		2017
+		2026
 	}
 
 	fn load_spec(&self, id: &str) -> Result<Box<dyn sc_service::ChainSpec>, String> {
