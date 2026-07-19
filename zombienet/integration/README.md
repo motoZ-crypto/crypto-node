@@ -1,6 +1,6 @@
 # Multi-Node Integration & Zombienet Tests
 
-End-to-end test harness for the crypto-node multi-node network. Drives a 5-node topology with [zombienet](https://github.com/paritytech/zombienet) and exercises PoW production, GRANDPA finality, validator lifecycle (lock/exit), difficulty adjustment, and network-partition recovery.
+End-to-end test harness for the numen multi-node network. Drives a 5-node topology with [zombienet](https://github.com/paritytech/zombienet) and exercises PoW production, GRANDPA finality, validator lifecycle (lock/exit), difficulty adjustment, and network-partition recovery.
 
 ## Runtime parameters (`zombienet-runtime` feature)
 

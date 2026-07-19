@@ -1,8 +1,6 @@
 # Hardhat compatibility sample
 
-End-to-end Hardhat 3 workflow against a local crypto-node dev chain. Verifies
-that compile → deploy → call → state-readback work over the Frontier
-Ethereum-compatible JSON-RPC.
+End-to-end Hardhat 3 workflow against a local numen dev chain. Verifies that compile → deploy → call → state-readback work over the Frontier Ethereum-compatible JSON-RPC.
 
 ## Prerequisites
 
@@ -20,26 +18,24 @@ Ethereum-compatible JSON-RPC.
 ./target/release/numen-node --dev --rpc-cors all --rpc-port 9944
 
 # 2. install JS deps
-cd tests/evm-tooling/hardhat
+cd zombienet/evm-tooling/hardhat
 npm install
 
 # 3. compile the contract
 npx hardhat compile
 
 # 4. run the live-chain test suite
-npx hardhat --network cryptoNode test mocha
+npx hardhat --network numen test mocha
 
 # 5. (optional) deploy without running tests
-npx hardhat --network cryptoNode run scripts/deploy.js
+npx hardhat --network numen run scripts/deploy.js
 ```
 
-Override the RPC endpoint with `CRYPTO_NODE_RPC=http://host:port npx hardhat ...`.
+Override the RPC endpoint with `NUMEN_RPC=http://host:port npx hardhat ...`.
 
 ## Pre-funded accounts
 
-The dev / local_testnet / integration genesis presets pre-fund the standard
-Frontier dev ECDSA accounts. The first three are wired into
-`hardhat.config.js`:
+The dev / local_testnet / integration genesis presets pre-fund the standard Frontier dev ECDSA accounts. The first three are wired into `hardhat.config.js`:
 
 | Name      | Address                                      |
 | --------- | -------------------------------------------- |
@@ -47,5 +43,4 @@ Frontier dev ECDSA accounts. The first three are wired into
 | Baltathar | `0x3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0` |
 | Charleth  | `0x798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc` |
 
-Their private keys are publicly documented and MUST NOT be used in any
-non-development network.
+Their private keys are publicly documented and MUST NOT be used in any non-development network.

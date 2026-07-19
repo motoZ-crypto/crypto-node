@@ -1,13 +1,13 @@
-// Token round-trip test against the live cryptoNode dev chain.
+// Token round-trip test against the live numen dev chain.
 //
-//   npx hardhat --network cryptoNode test mocha
+//   npx hardhat --network numen test mocha
 
 import { expect } from "chai";
 import { network } from "hardhat";
 
-const { ethers } = await network.create("cryptoNode");
+const { ethers } = await network.create("numen");
 
-describe("Token (cryptoNode)", function () {
+describe("Token (numen)", function () {
   // Real chain calls take seconds, not milliseconds — relax the default
   // mocha timeout so block-confirmation latency doesn't fail the suite.
   this.timeout(120_000);

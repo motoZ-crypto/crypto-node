@@ -11,4 +11,4 @@ optimizer_runs = 200
 
 # Networks usable from `forge create --network <name>` style flows.
 [rpc_endpoints]
-crypto_node = "http://127.0.0.1:9944"
+numen = "http://127.0.0.1:9944"

@@ -1,6 +1,6 @@
 # EVM developer-tooling compatibility
 
-This directory verifies that the crypto-node Frontier EVM stack works with the mainstream Ethereum toolchain.
+This directory verifies that the numen Frontier EVM stack works with the mainstream Ethereum toolchain.
 
 ## Layout
 
@@ -75,9 +75,9 @@ The same flow is automated by [`scripts/transfer-ethers.js`](scripts/transfer-et
 1. Deploy `Token.sol` with Hardhat:
 
    ```bash
-   cd tests/evm-tooling/hardhat
+   cd zombienet/evm-tooling/hardhat
    npm install
-   npx hardhat run scripts/deploy.js --network cryptoNode
+   npx hardhat run scripts/deploy.js --network numen
    # prints: Token: 0x...
    ```
 

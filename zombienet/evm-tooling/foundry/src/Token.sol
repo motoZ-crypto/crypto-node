@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// Mirror of `tests/evm-tooling/hardhat/contracts/Token.sol` so the same
+/// Mirror of `zombienet/evm-tooling/hardhat/contracts/Token.sol` so the same
 /// contract can be exercised through both Hardhat and Foundry tool-chains.
 contract Token {
-    string public constant name = "CryptoNode Sample Token";
-    string public constant symbol = "CNT";
+    string public constant name = "Numen Sample Token";
+    string public constant symbol = "NST";
     uint8 public constant decimals = 18;
 
     uint256 public totalSupply;

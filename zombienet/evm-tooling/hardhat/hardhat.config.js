@@ -1,6 +1,6 @@
-// Hardhat 3 configuration targeting a local crypto-node dev chain.
+// Hardhat 3 configuration targeting a local numen dev chain.
 //
-// `cryptoNode` connects to the HTTP JSON-RPC port exposed by:
+// `numen` connects to the HTTP JSON-RPC port exposed by:
 //
 //   ./target/release/numen-node \
 //       --dev --rpc-port 9944 --rpc-cors all
@@ -33,10 +33,10 @@ export default defineConfig({
     },
   },
   networks: {
-    cryptoNode: {
+    numen: {
       type: "http",
       chainType: "generic",
-      url: process.env.CRYPTO_NODE_RPC ?? "http://127.0.0.1:9944",
+      url: process.env.NUMEN_RPC ?? "http://127.0.0.1:9944",
       chainId: 320262,
       accounts: [ALITH_PK, BALTATHAR_PK, CHARLETH_PK],
     },

@@ -6,7 +6,7 @@ import {Token} from "../src/Token.sol";
 
 /// Forge script:
 ///   forge script script/Deploy.s.sol \
-///     --rpc-url crypto_node \
+///     --rpc-url numen \
 ///     --private-key $ALITH_PRIVATE_KEY \
 ///     --broadcast
 contract Deploy is Script {

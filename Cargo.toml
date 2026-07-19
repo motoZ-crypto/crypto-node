@@ -1,8 +1,8 @@
 [workspace.package]
 license = "MIT"
 authors = ["motoZ-crypto"]
-homepage = "https://github.com/motoZ-crypto/crypto"
-repository = "https://github.com/motoZ-crypto/crypto.git"
+homepage = "https://github.com/motoZ-crypto/numen"
+repository = "https://github.com/motoZ-crypto/numen.git"
 edition = "2024"
 
 [workspace]

@@ -10,7 +10,7 @@ through both `ethers` v6 and `web3` v4.
 ./target/release/numen-node --dev --rpc-cors all --rpc-port 9944
 
 # 2. install JS deps
-cd tests/evm-tooling/scripts
+cd zombienet/evm-tooling/scripts
 npm install
 
 # 3. native coin transfer (Alith → Baltathar)
@@ -26,7 +26,7 @@ node transfer-precompile.js
 node withdraw-to-substrate.js
 ```
 
-Override the endpoint with `CRYPTO_NODE_RPC=http://host:port`.
+Override the endpoint with `NUMEN_RPC=http://host:port`.
 
 Each script exits non-zero on assertion failure:
 
