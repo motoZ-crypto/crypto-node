@@ -2,11 +2,11 @@
 pragma solidity ^0.8.24;
 
 /// Minimal ERC-20 used to exercise compile / deploy / call paths against the
-/// crypto-node Frontier EVM stack. Not production-grade; no ownership, mint,
-/// burn or pausing logic.
+/// numen Frontier EVM stack. Not production-grade; no ownership, mint, burn
+/// or pausing logic.
 contract Token {
-    string public constant name = "CryptoNode Sample Token";
-    string public constant symbol = "CNT";
+    string public constant name = "Numen Sample Token";
+    string public constant symbol = "NST";
     uint8 public constant decimals = 18;
 
     uint256 public totalSupply;

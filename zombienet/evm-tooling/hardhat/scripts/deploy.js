@@ -1,10 +1,10 @@
-// Deploy the sample Token to the cryptoNode network.
+// Deploy the sample Token to the numen network.
 //
-//   npx hardhat --network cryptoNode run scripts/deploy.js
+//   npx hardhat --network numen run scripts/deploy.js
 
 import { network } from "hardhat";
 
-const { ethers } = await network.create("cryptoNode");
+const { ethers } = await network.create("numen");
 
 const initialSupply = ethers.parseUnits("1000000", 18);
 const Token = await ethers.getContractFactory("Token");

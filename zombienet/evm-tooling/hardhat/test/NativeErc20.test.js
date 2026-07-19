@@ -1,6 +1,6 @@
 // Native NUMN as ERC20 (precompile at 0x0000…0802) round-trip.
 //
-//   npx hardhat --network cryptoNode test mocha
+//   npx hardhat --network numen test mocha
 //
 // This complements `Token.test.js` by verifying that an EVM-side caller can
 // drive the native balance pallet through the standard ERC20 ABI exposed at
@@ -10,7 +10,7 @@
 import { expect } from "chai";
 import { network } from "hardhat";
 
-const { ethers } = await network.create("cryptoNode");
+const { ethers } = await network.create("numen");
 
 const PRECOMPILE = "0x0000000000000000000000000000000000000802";
 

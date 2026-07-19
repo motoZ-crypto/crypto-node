@@ -4,7 +4,7 @@
 
 const { Web3 } = require("web3");
 
-const RPC_URL = process.env.CRYPTO_NODE_RPC || "http://127.0.0.1:9944";
+const RPC_URL = process.env.NUMEN_RPC || "http://127.0.0.1:9944";
 
 async function main() {
   const web3 = new Web3(RPC_URL);

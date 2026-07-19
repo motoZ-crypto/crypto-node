@@ -9,7 +9,7 @@
 // Verification is EVM-side only (caller balance decreased and the
 // `Withdrawal(address,bytes32,uint256)` event matches). Substrate-side
 // verification through `@polkadot/api` lives in
-// `tests/integration/js-scripts/evm-precompile-roundtrip.js`.
+// `zombienet/integration/js-scripts/evm-precompile-roundtrip.js`.
 
 const {
   JsonRpcProvider,
@@ -24,7 +24,7 @@ const {
   getAddress,
 } = require("ethers");
 
-const RPC_URL = process.env.CRYPTO_NODE_RPC || "http://127.0.0.1:9944";
+const RPC_URL = process.env.NUMEN_RPC || "http://127.0.0.1:9944";
 const ALITH_PK =
   process.env.ALITH_PK ||
   "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133";
