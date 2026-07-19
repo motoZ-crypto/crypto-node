@@ -303,3 +303,165 @@ impl<Block: BlockT> Stream for UntilImportedOrTimeout<Block> {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::{Error, PowAlgorithm};
+	use futures::executor::block_on;
+	use sc_consensus::{BlockCheckParams, BlockImport, ImportResult};
+	use sp_core::{H256, U256};
+	use sp_runtime::{
+		testing::{Block as RawBlock, Header as TestHeader},
+		OpaqueExtrinsic,
+	};
+
+	type Block = RawBlock<OpaqueExtrinsic>;
+
+	/// Reports zero difficulty and accepts every seal, so `submit` outcomes
+	/// depend only on the task queue and block import.
+	struct AcceptAll;
+
+	impl PowAlgorithm<Block> for AcceptAll {
+		type Difficulty = U256;
+
+		fn difficulty(&self, _parent: H256) -> Result<U256, Error<Block>> {
+			Ok(U256::zero())
+		}
+
+		fn verify(
+			&self,
+			_parent: &BlockId<Block>,
+			_pre_hash: &H256,
+			_pre_digest: Option<&[u8]>,
+			_seal: &Seal,
+			_difficulty: U256,
+		) -> Result<bool, Error<Block>> {
+			Ok(true)
+		}
+	}
+
+	/// Records every imported block and always succeeds.
+	struct RecordingImport(Arc<Mutex<Vec<H256>>>);
+
+	#[async_trait::async_trait]
+	impl BlockImport<Block> for RecordingImport {
+		type Error = sp_consensus::Error;
+
+		async fn check_block(
+			&self,
+			_block: BlockCheckParams<Block>,
+		) -> Result<ImportResult, Self::Error> {
+			Ok(ImportResult::Imported(Default::default()))
+		}
+
+		async fn import_block(
+			&self,
+			block: BlockImportParams<Block>,
+		) -> Result<ImportResult, Self::Error> {
+			self.0.lock().push(block.header.hash());
+			Ok(ImportResult::Imported(Default::default()))
+		}
+	}
+
+	fn handle() -> (MiningHandle<Block, AcceptAll, ()>, Arc<Mutex<Vec<H256>>>) {
+		let imported = Arc::new(Mutex::new(Vec::new()));
+		let import = RecordingImport(imported.clone());
+		(MiningHandle::new(AcceptAll, Box::new(import), ()), imported)
+	}
+
+	fn build(head: u8, task: u64) -> MiningBuild<Block, AcceptAll> {
+		MiningBuild {
+			metadata: MiningMetadata {
+				best_hash: H256::repeat_byte(head),
+				pre_hash: H256::from_low_u64_be(task),
+				pre_runtime: None,
+				difficulty: U256::zero(),
+			},
+			proposal: Proposal {
+				block: <Block as BlockT>::new(TestHeader::new_from_number(1), Vec::new()),
+				storage_changes: Default::default(),
+			},
+		}
+	}
+
+	fn holds_task(handle: &MiningHandle<Block, AcceptAll, ()>, task: u64) -> bool {
+		handle.build.lock().iter().any(|b| b.metadata.pre_hash == H256::from_low_u64_be(task))
+	}
+
+	#[test]
+	fn on_build_evicts_the_oldest_past_the_cap() {
+		let (handle, _) = handle();
+		for task in 0..MAX_LIVE_TASKS as u64 {
+			handle.on_build(build(0xAA, task));
+		}
+		assert_eq!(handle.build.lock().len(), MAX_LIVE_TASKS, "the cap itself still fits");
+		assert!(holds_task(&handle, 0));
+
+		handle.on_build(build(0xAA, MAX_LIVE_TASKS as u64));
+
+		assert_eq!(
+			handle.build.lock().len(),
+			MAX_LIVE_TASKS,
+			"one past the cap evicts instead of growing",
+		);
+		assert!(!holds_task(&handle, 0), "the oldest build is the one evicted");
+		assert!(holds_task(&handle, 1));
+		assert!(holds_task(&handle, MAX_LIVE_TASKS as u64));
+	}
+
+	#[test]
+	fn on_build_drops_all_tasks_of_a_stale_head() {
+		let (handle, _) = handle();
+		for task in 0..3 {
+			handle.on_build(build(0xAA, task));
+		}
+
+		handle.on_build(build(0xBB, 7));
+
+		assert_eq!(handle.build.lock().len(), 1, "a new head starts an empty queue");
+		assert!(holds_task(&handle, 7));
+		assert_eq!(handle.best_hash(), Some(H256::repeat_byte(0xBB)));
+	}
+
+	#[test]
+	fn on_major_syncing_clears_the_queue() {
+		let (handle, _) = handle();
+		for task in 0..3 {
+			handle.on_build(build(0xAA, task));
+		}
+
+		handle.on_major_syncing();
+
+		assert!(handle.build.lock().is_empty());
+		assert_eq!(handle.best_hash(), None);
+		assert!(handle.metadata().is_none());
+	}
+
+	#[test]
+	fn submit_rejects_an_evicted_task() {
+		let (handle, imported) = handle();
+		for task in 0..=MAX_LIVE_TASKS as u64 {
+			handle.on_build(build(0xAA, task));
+		}
+
+		assert!(!block_on(handle.submit(H256::from_low_u64_be(0), vec![1])));
+
+		assert!(imported.lock().is_empty(), "an evicted task must not reach block import");
+	}
+
+	#[test]
+	fn submit_imports_a_retained_older_task_and_clears_the_queue() {
+		let (handle, imported) = handle();
+		handle.on_build(build(0xAA, 1));
+		handle.on_build(build(0xAA, 2));
+
+		assert!(block_on(handle.submit(H256::from_low_u64_be(1), vec![1])));
+
+		assert_eq!(imported.lock().len(), 1);
+		assert!(
+			handle.build.lock().is_empty(),
+			"a landed block invalidates every remaining build",
+		);
+	}
+}
