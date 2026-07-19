@@ -1,0 +1,182 @@
+//! ProxyType filter wiring. NonTransfer fences off every fund moving entry
+//! including the EVM ones, Governance admits only the governance pallets, and
+//! pallet-proxy enforces the filter at dispatch.
+
+mod common;
+
+use common::new_test_ext;
+use ethereum::{
+	legacy::TransactionSignature, LegacyTransaction, TransactionAction, TransactionV3,
+};
+use frame_support::{
+	assert_ok,
+	traits::{tokens::fungible::Mutate, InstanceFilter},
+};
+use numen_runtime::{
+	configs::ProxyType, AccountId, Balances, Proxy, Runtime, RuntimeCall, RuntimeOrigin, System,
+	UNIT,
+};
+use sp_core::{H160, H256, U256};
+use sp_keyring::Sr25519Keyring;
+use sp_runtime::traits::StaticLookup;
+
+fn src(who: &AccountId) -> <<Runtime as frame_system::Config>::Lookup as StaticLookup>::Source {
+	<Runtime as frame_system::Config>::Lookup::unlookup(who.clone())
+}
+
+fn transfer_call(dest: &AccountId) -> RuntimeCall {
+	RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+		dest: src(dest),
+		value: UNIT,
+	})
+}
+
+fn evm_withdraw_call() -> RuntimeCall {
+	RuntimeCall::EVM(pallet_evm::Call::withdraw { address: H160::zero(), value: UNIT })
+}
+
+fn ethereum_transact_call() -> RuntimeCall {
+	let signature = TransactionSignature::new(27, H256::repeat_byte(0x01), H256::repeat_byte(0x01))
+		.expect("dummy legacy signature is within range");
+	RuntimeCall::Ethereum(pallet_ethereum::Call::transact {
+		transaction: TransactionV3::Legacy(LegacyTransaction {
+			nonce: U256::zero(),
+			gas_price: U256::zero(),
+			gas_limit: U256::from(21_000),
+			action: TransactionAction::Call(H160::zero()),
+			value: U256::zero(),
+			input: Vec::new(),
+			signature,
+		}),
+	})
+}
+
+fn remark_call() -> RuntimeCall {
+	RuntimeCall::System(frame_system::Call::remark { remark: Vec::new() })
+}
+
+fn governance_whitelist(voter: &AccountId) -> Vec<RuntimeCall> {
+	vec![
+		RuntimeCall::Treasury(pallet_treasury::Call::remove_approval { proposal_id: 0 }),
+		RuntimeCall::Bounties(pallet_bounties::Call::propose_bounty {
+			value: UNIT,
+			description: Vec::new(),
+		}),
+		RuntimeCall::ChildBounties(pallet_child_bounties::Call::add_child_bounty {
+			parent_bounty_id: 0,
+			value: UNIT,
+			description: Vec::new(),
+		}),
+		RuntimeCall::ConvictionVoting(pallet_conviction_voting::Call::unlock {
+			class: 0,
+			target: src(voter),
+		}),
+		RuntimeCall::Referenda(pallet_referenda::Call::place_decision_deposit { index: 0 }),
+		RuntimeCall::Utility(pallet_utility::Call::batch { calls: Vec::new() }),
+	]
+}
+
+#[test]
+fn non_transfer_blocks_every_fund_moving_entry() {
+	let dest = Sr25519Keyring::Bob.to_account_id();
+	for call in [transfer_call(&dest), evm_withdraw_call(), ethereum_transact_call()] {
+		assert!(
+			!ProxyType::NonTransfer.filter(&call),
+			"NonTransfer must block {call:?}",
+		);
+	}
+}
+
+#[test]
+fn non_transfer_admits_calls_that_leave_funds_alone() {
+	let voter = Sr25519Keyring::Bob.to_account_id();
+	for call in governance_whitelist(&voter).into_iter().chain([remark_call()]) {
+		assert!(
+			ProxyType::NonTransfer.filter(&call),
+			"NonTransfer must admit {call:?}",
+		);
+	}
+}
+
+#[test]
+fn governance_admits_only_the_governance_whitelist() {
+	let who = Sr25519Keyring::Bob.to_account_id();
+	for call in governance_whitelist(&who) {
+		assert!(ProxyType::Governance.filter(&call), "Governance must admit {call:?}");
+	}
+	for call in [transfer_call(&who), evm_withdraw_call(), remark_call()] {
+		assert!(!ProxyType::Governance.filter(&call), "Governance must block {call:?}");
+	}
+}
+
+#[test]
+fn proxy_type_lattice_orders_permissions() {
+	use ProxyType::{Any, Governance, NonTransfer};
+
+	assert!(Any.is_superset(&Any));
+	assert!(Any.is_superset(&NonTransfer));
+	assert!(Any.is_superset(&Governance));
+	assert!(NonTransfer.is_superset(&Governance));
+	assert!(!NonTransfer.is_superset(&Any));
+	assert!(!Governance.is_superset(&NonTransfer));
+	assert!(!Governance.is_superset(&Any));
+}
+
+#[test]
+fn non_transfer_proxy_cannot_move_funds_on_chain() {
+	new_test_ext().execute_with(|| {
+		let delegator = Sr25519Keyring::Alice.to_account_id();
+		let delegate = Sr25519Keyring::Bob.to_account_id();
+		let target = Sr25519Keyring::Charlie.to_account_id();
+		Balances::set_balance(&delegator, 100 * UNIT);
+		assert_ok!(Proxy::add_proxy(
+			RuntimeOrigin::signed(delegator.clone()),
+			src(&delegate),
+			ProxyType::NonTransfer,
+			0,
+		));
+		let delegator_free = Balances::free_balance(&delegator);
+
+		assert_ok!(Proxy::proxy(
+			RuntimeOrigin::signed(delegate),
+			src(&delegator),
+			None,
+			Box::new(transfer_call(&target)),
+		));
+
+		System::assert_last_event(
+			pallet_proxy::Event::ProxyExecuted {
+				result: Err(frame_system::Error::<Runtime>::CallFiltered.into()),
+			}
+			.into(),
+		);
+		assert_eq!(Balances::free_balance(&target), 0, "no funds may leave through the proxy");
+		assert_eq!(Balances::free_balance(&delegator), delegator_free);
+	});
+}
+
+#[test]
+fn non_transfer_proxy_still_dispatches_harmless_calls() {
+	new_test_ext().execute_with(|| {
+		let delegator = Sr25519Keyring::Alice.to_account_id();
+		let delegate = Sr25519Keyring::Bob.to_account_id();
+		Balances::set_balance(&delegator, 100 * UNIT);
+		assert_ok!(Proxy::add_proxy(
+			RuntimeOrigin::signed(delegator.clone()),
+			src(&delegate),
+			ProxyType::NonTransfer,
+			0,
+		));
+
+		assert_ok!(Proxy::proxy(
+			RuntimeOrigin::signed(delegate),
+			src(&delegator),
+			None,
+			Box::new(remark_call()),
+		));
+
+		System::assert_last_event(
+			pallet_proxy::Event::ProxyExecuted { result: Ok(()) }.into(),
+		);
+	});
+}
