@@ -2,6 +2,15 @@
 
 A blockchain project built using the Polkadot SDK.
 
+## Requirements
+
+|             | CPU     | RAM  | Disk  |
+|-------------|---------|------|-------|
+| Minimum     | 1 core  | 1 GB |  5 GB |
+| Recommended | 4 cores | 4 GB | 20 GB |
+
+Disk usage grows as the chain does.
+
 ## Getting Started
 
 See [docs/how-to-build.md](docs/how-to-build.md) for instructions on building this blockchain node program in Rust.
