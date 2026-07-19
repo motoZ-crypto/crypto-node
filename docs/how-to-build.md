@@ -122,5 +122,5 @@ The first build compiles all dependencies and may take 20–60 minutes.
 
 | Component | Minimum |
 |-----------|---------|
-| RAM       | 32 GB   |
-| Disk      | 64 GB   |
+| RAM       |    6 GB |
+| Disk      |   12 GB |
