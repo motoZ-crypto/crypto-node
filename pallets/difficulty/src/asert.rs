@@ -23,7 +23,7 @@ const FRAC_ONE: i128 = 1 << FRAC_BITS; // 65536
 /// - `anchor_target`: Target value of the anchor block (U256).
 /// - `time_delta`: Current block timestamp minus anchor block parent timestamp (seconds).
 /// - `height_delta`: Current block height minus anchor block height.
-/// - `target_block_time`: Ideal block interval in seconds (e.g. 20).
+/// - `target_block_time`: Ideal block interval in seconds (e.g. 10).
 /// - `halflife`: ASERT halflife in seconds (e.g. 1800).
 ///
 /// # Returns
