@@ -4,7 +4,7 @@ ASERT (Absolutely Scheduled Exponentially Rising Targets) difficulty adjustment 
 
 ## Overview
 
-This pallet dynamically adjusts the mining difficulty to keep block production close to the target interval (default: 20 seconds). It uses ASERT against a fixed anchor block (the original chain anchor), so each block's target is computed independently of intermediate blocks. When the gap between two consecutive blocks exceeds a configured threshold, the chain is considered to have resumed from an outage and the anchor is moved forward to the recovery block, so subsequent blocks are evaluated relative to the resumption point rather than dragging the long gap into every future computation.
+This pallet dynamically adjusts the mining difficulty to keep block production close to the target interval (10 seconds by default). It uses ASERT against a fixed anchor block (the original chain anchor), so each block's target is computed independently of intermediate blocks. When the gap between two consecutive blocks exceeds a configured threshold, the chain is considered to have resumed from an outage and the anchor is moved forward to the recovery block, so subsequent blocks are evaluated relative to the resumption point rather than dragging the long gap into every future computation.
 
 ### Formula
 
@@ -15,7 +15,7 @@ next_target = anchor_target × 2^((time_delta - target_block_time × height_delt
 - `anchor_target` — target value of the anchor block
 - `time_delta` — current block timestamp minus anchor block timestamp (seconds)
 - `height_delta` — current block height minus anchor block height
-- `target_block_time` — ideal block interval (20s)
+- `target_block_time` — ideal block interval (10s)
 - `halflife` — 1800s (30 minutes)
 
 ### Interruption recovery
@@ -52,7 +52,7 @@ The pallet exposes `DifficultyApi` with two methods:
 
 ```rust
 parameter_types! {
-    pub const TargetBlockTime: u64 = 20;                       // seconds
+    pub const TargetBlockTime: u64 = 10;                       // seconds
     pub const DifficultyHalflife: u64 = 1800;                  // seconds (30 minutes)
     pub const DifficultyBreakThresholdSecs: u64 = 1800;        // outage threshold (seconds)
 }
