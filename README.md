@@ -1,12 +1,22 @@
-# Introduction
+<div align="center">
 
-A blockchain project built using the Polkadot SDK.
+# Numen
+
+A Layer 1 blockchain powered by Proof of Scan, built with the Polkadot SDK.
+
+![GitHub stars](https://img.shields.io/github/stars/motoZ-crypto/numen)&nbsp;&nbsp;![GitHub forks](https://img.shields.io/github/forks/motoZ-crypto/numen)
+
+[![CI](https://img.shields.io/github/actions/workflow/status/motoZ-crypto/numen/ci.yml?label=CI)](https://github.com/motoZ-crypto/numen/actions/workflows/ci.yml)&nbsp;&nbsp;[![License](https://img.shields.io/github/license/motoZ-crypto/numen)](LICENSE)&nbsp;&nbsp;[![Last commit](https://img.shields.io/github/last-commit/motoZ-crypto/numen)](https://github.com/motoZ-crypto/numen/commits/master)&nbsp;&nbsp;[![Discord](https://img.shields.io/discord/1528532360113684590?logo=discord&label=Discord)](https://discord.gg/WKmyTfmaa)&nbsp;&nbsp;[![Website](https://img.shields.io/badge/Website-numen--network.org-blue)](https://www.numen-network.org)
+
+</div>
+
+---
 
 ## Requirements
 
 |             | CPU     | RAM  | Disk  |
-|-------------|---------|------|-------|
-| Minimum     | 1 core  | 1 GB |  5 GB |
+| ----------- | ------- | ---- | ----- |
+| Minimum     | 1 core  | 1 GB | 5 GB  |
 | Recommended | 4 cores | 4 GB | 20 GB |
 
 Disk usage grows as the chain does.
@@ -15,12 +25,26 @@ Disk usage grows as the chain does.
 
 See [docs/how-to-build.md](docs/how-to-build.md) for instructions on building this blockchain node program in Rust.
 
+## Run a node
+
+Sync a node against the testnet.
+
+```bash
+./numen --chain testnet-raw.json
+```
+
+Run an archive node to keep every historical state.
+
+```bash
+./numen --chain testnet-raw.json --state-pruning archive
+```
+
 ## Mining
 
 Mine locally and credit rewards to the given account.
 
 ```bash
-./numen --miner <YOUR_ADDRESS> --node-miner
+./numen --chain testnet-raw.json --miner <YOUR_ADDRESS> --node-miner <THREADS>
 ```
 
 `--miner` sets the reward address and exposes the mining RPC so external miners can scan off the node and submit seals.
