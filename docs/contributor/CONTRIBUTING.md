@@ -1,6 +1,6 @@
 # Contributing
 
-The `crypto` project is an **Open Source Project**
+Numen is an **Open Source Project**
 
 ## What?
 
