@@ -48,7 +48,10 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use sp_core::U256;
 
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
