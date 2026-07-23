@@ -28,7 +28,10 @@ pub mod pallet {
 	use frame_support::{dispatch::DispatchClass, pallet_prelude::*};
 	use frame_system::{pallet_prelude::*, WeightInfo as _};
 
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
