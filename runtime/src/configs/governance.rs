@@ -9,9 +9,10 @@ use crate::{
 use alloc::borrow::Cow;
 use frame_support::{
 	parameter_types,
-	traits::{ConstU32, EitherOf},
+	traits::{AsEnsureOriginWithArg, ConstU32, EitherOf, EnsureOrigin},
 };
-use frame_system::EnsureSigned;
+use frame_system::{EnsureSigned, RawOrigin};
+use pallet_identity::Judgement;
 use pallet_referenda::{Curve, Track, TrackInfo};
 use sp_runtime::{str_array as s, FixedI64};
 
@@ -197,13 +198,59 @@ impl pallet_custom_origins::Config for Runtime {}
 /// amount.
 pub type TreasurySpender = EitherOf<SmallSpender, EitherOf<MediumSpender, BigSpender>>;
 
+/// Referendum submission is open to any account holding an identity judged
+/// Reasonable or KnownGood. A sub account qualifies through its parent since
+/// the SuperOf link keeps the owner traceable.
+pub struct EnsureJudgedIdentity;
+
+impl EnsureJudgedIdentity {
+	fn is_judged(who: &AccountId) -> bool {
+		pallet_identity::IdentityOf::<Runtime>::get(who).is_some_and(|registration| {
+			registration
+				.judgements
+				.iter()
+				.any(|(_, judgement)| matches!(judgement, Judgement::Reasonable | Judgement::KnownGood))
+		})
+	}
+}
+
+impl EnsureOrigin<RuntimeOrigin> for EnsureJudgedIdentity {
+	type Success = AccountId;
+
+	fn try_origin(o: RuntimeOrigin) -> Result<Self::Success, RuntimeOrigin> {
+		let who = EnsureSigned::<AccountId>::try_origin(o)?;
+		let judged = Self::is_judged(&who)
+			|| pallet_identity::SuperOf::<Runtime>::get(&who)
+				.is_some_and(|(parent, _)| Self::is_judged(&parent));
+		if judged {
+			Ok(who)
+		} else {
+			Err(RawOrigin::Signed(who).into())
+		}
+	}
+
+	#[cfg(feature = "runtime-benchmarks")]
+	fn try_successful_origin() -> Result<RuntimeOrigin, ()> {
+		let who: AccountId = frame_benchmarking::whitelisted_caller();
+		let registration = pallet_identity::Registration {
+			judgements: alloc::vec![(0, Judgement::Reasonable)]
+				.try_into()
+				.map_err(|_| ())?,
+			deposit: 0,
+			info: Default::default(),
+		};
+		pallet_identity::IdentityOf::<Runtime>::insert(&who, registration);
+		Ok(RawOrigin::Signed(who).into())
+	}
+}
+
 impl pallet_referenda::Config for Runtime {
 	type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
 	type Scheduler = Scheduler;
 	type Currency = Balances;
-	type SubmitOrigin = EnsureSigned<AccountId>;
+	type SubmitOrigin = AsEnsureOriginWithArg<EnsureJudgedIdentity>;
 	type CancelOrigin = pallet_prime::EnsurePrime<Runtime>;
 	type KillOrigin = pallet_prime::EnsurePrime<Runtime>;
 	type Slash = Treasury;
